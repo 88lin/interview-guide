@@ -65,22 +65,37 @@ export default function KnowledgeBaseQueryPage({ onBack, onUpload }: KnowledgeBa
     });
   };
 
-  // 核心修复：格式化 Markdown 文本
+  /**
+   * 极致 Markdown 格式化（流式输出友好）：
+   * 1. 强制在数字列表和圆点列表前增加双换行，确保段落间距。
+   * 2. 修复中文标点符号后的列表粘连。
+   * 3. 优化以处理流式输出时可能不完整的内容。
+   */
   const formatMarkdown = (text: string): string => {
     if (!text) return '';
+    
     return text
-      // 1. 处理转义换行符 (把字面量 "\n" 替换为真正的换行符)
+      // 1. 处理基础转义换行
       .replace(/\\n/g, '\n')
-      // 2. 确保列表项 (1. 2. 3.) 前面有换行，防止挤在一起
-      .replace(/(\d+\.\s)/g, '\n$1')
-      // 3. 确保标题 (#) 前面有换行
-      .replace(/(\n#{1,6}\s)/g, '\n\n$1')
-      // 4. 修复有些 AI 输出 1.**标题** 缺少空格的问题
-      .replace(/(\d+\.)(\*\*)/g, '$1 $2')
-      // 5. 修复标题格式：##标题 -> ## 标题（# 号后必须有空格）
-      .replace(/(#{1,6})([^\s#\n])/g, '$1 $2')
-      // 6. 修复列表项格式：1.**文本** -> 1. **文本**（点号后必须有空格）
-      .replace(/(\d+)\.([^\s\n])/g, '$1. $2');
+      // 2. 修复标题格式：##标题 -> ## 标题（# 后必须有空格，但避免在流式输出时误处理）
+      .replace(/^(#{1,6})([^\s#\n])/gm, '$1 $2')
+      // 3. 修复有序列表标记：行首 "1.内容" -> "1. 内容"（避免 1.1 这种小数，限定行首）
+      .replace(/(^|\n)(\s*\d+)\.(?=\S)/g, '$1$2. ')
+      // 4. 修复无序列表标记：行首 "-内容" / "*内容" -> "- 内容" / "* 内容"
+      .replace(/(^|\n)(\s*[-*])(?=\S)/g, '$1$2 ')
+      // 5. 修复"粘连"的有序列表：在 "1. " 前强制加两个换行，确保独立成段
+      .replace(/([^\n])\s*(\d+\.\s+)/g, '$1\n\n$2')
+      // 6. 修复"粘连"的无序列表（两类）
+      // 6.1) 句末/括号/冒号后紧跟列表： "...：- " / "。* " -> 换行成列表
+      .replace(/([。！？）:：])\s*([-*])\s*/g, '$1\n\n$2 ')
+      // 6.2) 文本中出现 "  - " / "  * " 这种行内列表（要求前后至少有空格，避免误伤 MySQL-PostgreSQL）
+      .replace(/([^\n])\s+([-*])\s+/g, '$1\n\n$2 ')
+      // 7. 修复加粗冒号后的间距美化
+      .replace(/\*\*：/g, '**： ')
+      // 8. 确保标题（#）前后有空行（但避免在流式输出时误处理不完整的标题）
+      .replace(/([^\n])\s*(#{1,6}\s+[^\n]+)/g, '$1\n\n$2')
+      // 9. 清理多余的连续空行（超过2个换行变成2个）
+      .replace(/\n{3,}/g, '\n\n');
   };
 
   const handleSubmitQuestion = async () => {
@@ -345,19 +360,23 @@ export default function KnowledgeBaseQueryPage({ onBack, onUpload }: KnowledgeBa
                           className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
                         >
                           <div
-                            className={`max-w-[80%] rounded-2xl p-4 ${
+                            className={`max-w-[92%] rounded-2xl p-5 shadow-sm ${
                               msg.type === 'user'
-                                ? 'bg-primary-500 text-white'
-                                : 'bg-slate-100 text-slate-800'
+                                ? 'bg-primary-600 text-white'
+                                : 'bg-white border border-slate-100 text-slate-800'
                             }`}
                           >
                             {msg.type === 'user' ? (
                               <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                             ) : (
-                              <div className="prose prose-slate prose-sm md:prose-base max-w-none break-words
-                                prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:text-slate-100
-                                prose-headings:text-slate-900 prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
-                                prose-li:my-1 prose-ul:my-2 prose-ol:my-2">
+                              <div className="prose prose-slate max-w-none
+                                prose-headings:text-slate-900 prose-headings:font-bold prose-headings:mb-4 prose-headings:mt-8
+                                prose-p:leading-8 prose-p:text-slate-700 prose-p:mb-6
+                                prose-strong:text-slate-900 prose-strong:font-bold
+                                prose-ul:my-6 prose-ol:my-6
+                                prose-li:my-3 prose-li:leading-8
+                                prose-code:bg-slate-100 prose-code:text-primary-600 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none
+                                marker:text-primary-500 marker:font-bold">
                                 <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
                                   {formatMarkdown(msg.content)}
                                 </ReactMarkdown>

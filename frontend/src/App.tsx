@@ -6,6 +6,7 @@ import ResumeDetailPage from './pages/ResumeDetailPage';
 import Interview from './pages/InterviewPage';
 import KnowledgeBaseQueryPage from './pages/KnowledgeBaseQueryPage';
 import KnowledgeBaseUploadPage from './pages/KnowledgeBaseUploadPage';
+import MarkdownTestPage from './pages/MarkdownTestPage';
 import {historyApi} from './api/history';
 import {useEffect, useState} from 'react';
 import type {ResumeAnalysisResponse, StorageInfo} from './types/resume';
@@ -146,6 +147,9 @@ function App() {
           
           {/* 知识库上传 */}
           <Route path="knowledgebase/upload" element={<KnowledgeBaseUploadPageWrapper />} />
+          
+          {/* Markdown 测试页面 */}
+          <Route path="markdown-test" element={<MarkdownTestPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
