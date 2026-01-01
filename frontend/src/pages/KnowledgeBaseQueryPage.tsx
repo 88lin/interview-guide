@@ -7,6 +7,7 @@ import {knowledgeBaseApi, type KnowledgeBaseItem, type SortOption} from '../api/
 import {ragChatApi, type RagChatSessionListItem} from '../api/ragChat';
 import {formatDateOnly} from '../utils/date';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 import {
   Plus,
   Trash2,
@@ -978,26 +979,20 @@ export default function KnowledgeBaseQueryPage({ onBack, onUpload }: KnowledgeBa
       </AnimatePresence>
 
       {/* 知识库删除确认对话框 */}
-      <ConfirmDialog
+      <DeleteConfirmDialog
         open={deleteConfirm !== null}
-        title="删除知识库"
-        message={deleteConfirm ? `确定要删除知识库"${deleteConfirm.name}"吗？删除后无法恢复。` : ''}
-        confirmText="确定删除"
-        cancelText="取消"
-        confirmVariant="danger"
+        item={deleteConfirm}
+        itemType="知识库"
         loading={deletingId !== null}
         onConfirm={handleDeleteKbConfirm}
         onCancel={() => setDeleteConfirm(null)}
       />
 
       {/* 会话删除确认对话框 */}
-      <ConfirmDialog
+      <DeleteConfirmDialog
         open={sessionDeleteConfirm !== null}
-        title="删除对话"
-        message={sessionDeleteConfirm ? `确定要删除对话"${sessionDeleteConfirm.title}"吗？删除后无法恢复。` : ''}
-        confirmText="确定删除"
-        cancelText="取消"
-        confirmVariant="danger"
+        item={sessionDeleteConfirm}
+        itemType="对话"
         loading={false}
         onConfirm={handleDeleteSession}
         onCancel={() => setSessionDeleteConfirm(null)}

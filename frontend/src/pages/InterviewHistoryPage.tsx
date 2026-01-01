@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react';
 import {motion} from 'framer-motion';
 import {historyApi, InterviewItem} from '../api/history';
 import {formatDateOnly} from '../utils/date';
-import ConfirmDialog from '../components/ConfirmDialog';
+import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 
 interface InterviewHistoryPageProps {
   onBack: () => void;
@@ -259,13 +259,10 @@ export default function InterviewHistoryPage({ onBack, onViewInterview }: Interv
       )}
 
       {/* 删除确认对话框 */}
-      <ConfirmDialog
+      <DeleteConfirmDialog
         open={deleteConfirm !== null}
-        title="删除面试记录"
-        message="确定要删除这条面试记录吗？删除后无法恢复。"
-        confirmText="确定删除"
-        cancelText="取消"
-        confirmVariant="danger"
+        item={deleteConfirm ? { id: 0, sessionId: deleteConfirm.sessionId } : null}
+        itemType="面试记录"
         loading={deletingSessionId !== null}
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteConfirm(null)}

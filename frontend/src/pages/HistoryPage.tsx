@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import {AnimatePresence, motion} from 'framer-motion';
 import {historyApi, ResumeListItem} from '../api/history';
-import ConfirmDialog from '../components/ConfirmDialog';
+import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 import {formatDateOnly} from '../utils/date';
 import {getScoreProgressColor} from '../utils/score';
 
@@ -236,10 +236,14 @@ export default function HistoryList({ onSelectResume }: HistoryListProps) {
       )}
       
       {/* 删除确认对话框 */}
-      <ConfirmDialog
+      <DeleteConfirmDialog
         open={deleteConfirm !== null}
-        title="删除简历"
-        message={
+        item={deleteConfirm}
+        itemType="简历"
+        loading={deletingId !== null}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirm(null)}
+        customMessage={
           deleteConfirm ? (
             <>
               <p className="mb-2">确定要删除简历 <strong>"{deleteConfirm.filename}"</strong> 吗？</p>
@@ -250,14 +254,8 @@ export default function HistoryList({ onSelectResume }: HistoryListProps) {
               </ul>
               <p className="text-sm font-semibold text-red-600">此操作不可恢复！</p>
             </>
-          ) : ''
+          ) : undefined
         }
-        confirmText="确定删除"
-        cancelText="取消"
-        confirmVariant="danger"
-        loading={deletingId !== null}
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirm(null)}
       />
     </motion.div>
   );
