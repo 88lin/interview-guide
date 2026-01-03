@@ -143,5 +143,17 @@ public class KnowledgeBaseController {
     public Result<KnowledgeBaseStatsDTO> getStatistics() {
         return Result.success(listService.getStatistics());
     }
+
+    // ========== 向量化管理 API ==========
+
+    /**
+     * 重新向量化知识库（手动重试）
+     * 用于向量化失败后的重试
+     */
+    @PostMapping("/api/knowledgebase/{id}/revectorize")
+    public Result<Void> revectorize(@PathVariable Long id) {
+        uploadService.revectorize(id);
+        return Result.success(null);
+    }
 }
 

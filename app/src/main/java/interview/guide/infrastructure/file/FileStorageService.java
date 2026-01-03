@@ -77,6 +77,29 @@ public class FileStorageService {
     }
 
     /**
+     * 下载文件（通用方法）
+     *
+     * @param fileKey 文件存储键
+     * @return 文件字节数组
+     */
+    public byte[] downloadFile(String fileKey) {
+        if (!fileExists(fileKey)) {
+            throw new BusinessException(ErrorCode.STORAGE_DOWNLOAD_FAILED, "文件不存在: " + fileKey);
+        }
+
+        try {
+            GetObjectRequest getRequest = GetObjectRequest.builder()
+                    .bucket(storageConfig.getBucket())
+                    .key(fileKey)
+                    .build();
+            return s3Client.getObjectAsBytes(getRequest).asByteArray();
+        } catch (S3Exception e) {
+            log.error("下载文件失败: {} - {}", fileKey, e.getMessage(), e);
+            throw new BusinessException(ErrorCode.STORAGE_DOWNLOAD_FAILED, "文件下载失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 通用文件上传方法
      */
     private String uploadFile(MultipartFile file, String prefix) {

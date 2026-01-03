@@ -87,13 +87,26 @@ public class ResumeController {
     
     /**
      * 删除简历
-     * 
+     *
      * @param id 简历ID
      * @return 删除结果
      */
     @DeleteMapping("/api/resumes/{id}")
     public Result<Void> deleteResume(@PathVariable Long id) {
         deleteService.deleteResume(id);
+        return Result.success(null);
+    }
+
+    /**
+     * 重新分析简历（手动重试）
+     * 用于分析失败后的重试
+     *
+     * @param id 简历ID
+     * @return 结果
+     */
+    @PostMapping("/api/resumes/{id}/reanalyze")
+    public Result<Void> reanalyze(@PathVariable Long id) {
+        uploadService.reanalyze(id);
         return Result.success(null);
     }
     

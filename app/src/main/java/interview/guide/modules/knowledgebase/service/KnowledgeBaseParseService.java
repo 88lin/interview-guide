@@ -1,38 +1,25 @@
 package interview.guide.modules.knowledgebase.service;
 
-import interview.guide.common.exception.BusinessException;
-import interview.guide.common.exception.ErrorCode;
 import interview.guide.infrastructure.file.ContentTypeDetectionService;
-import interview.guide.infrastructure.file.TextCleaningService;
+import interview.guide.infrastructure.file.DocumentParseService;
+import interview.guide.infrastructure.file.FileStorageService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tika.Tika;
-import org.apache.tika.exception.TikaException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.io.InputStream;
-
 /**
  * 知识库解析服务
- * 使用Apache Tika解析多种文档格式
+ * 委托给通用的 DocumentParseService 处理
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class KnowledgeBaseParseService {
 
-    private final Tika tika;
+    private final DocumentParseService documentParseService;
     private final ContentTypeDetectionService contentTypeDetectionService;
-    private final TextCleaningService textCleaningService;
-
-    public KnowledgeBaseParseService(ContentTypeDetectionService contentTypeDetectionService,
-                                     TextCleaningService textCleaningService) {
-        this.contentTypeDetectionService = contentTypeDetectionService;
-        this.textCleaningService = textCleaningService;
-        this.tika = new Tika();
-        // 设置最大文本提取长度为5MB（知识库可能比简历更大）
-        this.tika.setMaxStringLength(5 * 1024 * 1024);
-    }
+    private final FileStorageService storageService;
 
     /**
      * 解析上传的知识库文件，提取文本内容
@@ -41,22 +28,32 @@ public class KnowledgeBaseParseService {
      * @return 提取的文本内容
      */
     public String parseContent(MultipartFile file) {
-        String fileName = file.getOriginalFilename();
-        log.info("开始解析知识库文件: {}", fileName);
+        log.info("开始解析知识库文件: {}", file.getOriginalFilename());
+        return documentParseService.parseContent(file);
+    }
 
-        try (InputStream inputStream = file.getInputStream()) {
-            String content = tika.parseToString(inputStream);
+    /**
+     * 解析字节数组形式的文件内容
+     *
+     * @param fileBytes 文件字节数组
+     * @param fileName  原始文件名（用于日志）
+     * @return 提取的文本内容
+     */
+    public String parseContent(byte[] fileBytes, String fileName) {
+        log.info("开始解析知识库文件（从字节数组）: {}", fileName);
+        return documentParseService.parseContent(fileBytes, fileName);
+    }
 
-            // 使用统一的文本清理服务
-            String cleanedContent = textCleaningService.cleanText(content);
-
-            log.info("知识库解析成功，提取文本长度: {} 字符", cleanedContent.length());
-            return cleanedContent;
-
-        } catch (IOException | TikaException e) {
-            log.error("知识库解析失败: {}", e.getMessage(), e);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "知识库解析失败: " + e.getMessage());
-        }
+    /**
+     * 从存储下载文件并解析内容
+     *
+     * @param storageKey       存储键
+     * @param originalFilename 原始文件名
+     * @return 提取的文本内容
+     */
+    public String downloadAndParseContent(String storageKey, String originalFilename) {
+        log.info("从存储下载并解析知识库文件: {}", originalFilename);
+        return documentParseService.downloadAndParseContent(storageService, storageKey, originalFilename);
     }
 
     /**
@@ -66,4 +63,3 @@ public class KnowledgeBaseParseService {
         return contentTypeDetectionService.detectContentType(file);
     }
 }
-

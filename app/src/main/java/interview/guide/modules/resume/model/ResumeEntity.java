@@ -1,5 +1,6 @@
 package interview.guide.modules.resume.model;
 
+import interview.guide.common.model.AsyncTaskStatus;
 import jakarta.persistence.*;
 
 import java.time.LocalDateTime;
@@ -53,6 +54,15 @@ public class ResumeEntity {
     
     // 访问次数
     private Integer accessCount = 0;
+
+    // 分析状态（新上传时为 PENDING，异步分析完成后变为 COMPLETED）
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private AsyncTaskStatus analyzeStatus = AsyncTaskStatus.PENDING;
+
+    // 分析错误信息（失败时记录）
+    @Column(length = 500)
+    private String analyzeError;
     
     @PrePersist
     protected void onCreate() {
@@ -153,5 +163,21 @@ public class ResumeEntity {
     public void incrementAccessCount() {
         this.accessCount++;
         this.lastAccessedAt = LocalDateTime.now();
+    }
+
+    public AsyncTaskStatus getAnalyzeStatus() {
+        return analyzeStatus;
+    }
+
+    public void setAnalyzeStatus(AsyncTaskStatus analyzeStatus) {
+        this.analyzeStatus = analyzeStatus;
+    }
+
+    public String getAnalyzeError() {
+        return analyzeError;
+    }
+
+    public void setAnalyzeError(String analyzeError) {
+        this.analyzeError = analyzeError;
     }
 }

@@ -61,10 +61,10 @@ public class KnowledgeBaseEntity {
     // 问题数量（用户针对此知识库提问的次数）
     private Integer questionCount = 0;
 
-    // 向量化状态
+    // 向量化状态（新上传时为 PENDING，异步处理完成后变为 COMPLETED）
     @Enumerated(EnumType.STRING)
     @Column(length = 20)
-    private VectorStatus vectorStatus = VectorStatus.COMPLETED;
+    private VectorStatus vectorStatus = VectorStatus.PENDING;
 
     // 向量化错误信息（失败时记录）
     @Column(length = 500)

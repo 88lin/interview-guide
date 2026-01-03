@@ -144,6 +144,15 @@ export const knowledgeBaseApi = {
     return request.get<KnowledgeBaseStats>('/api/knowledgebase/stats');
   },
 
+  // ========== 向量化管理 ==========
+
+  /**
+   * 重新向量化知识库（手动重试）
+   */
+  async revectorize(id: number): Promise<void> {
+    return request.post(`/api/knowledgebase/${id}/revectorize`);
+  },
+
   /**
    * 基于知识库回答问题
    */

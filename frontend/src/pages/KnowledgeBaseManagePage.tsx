@@ -17,6 +17,7 @@ import {
   Edit3,
   Check,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import {
   knowledgeBaseApi,
@@ -132,6 +133,29 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
   const [savingCategory, setSavingCategory] = useState(false);
   const categoryInputRef = useRef<HTMLInputElement>(null);
 
+  // 重新向量化状态
+  const [revectorizing, setRevectorizing] = useState<number | null>(null);
+
+  // 加载数据（不显示loading状态，用于轮询）
+  const loadDataSilent = useCallback(async () => {
+    try {
+      const [statsData, kbList, categoryList] = await Promise.all([
+        knowledgeBaseApi.getStatistics(),
+        searchKeyword
+          ? knowledgeBaseApi.search(searchKeyword)
+          : selectedCategory
+          ? knowledgeBaseApi.getByCategory(selectedCategory)
+          : knowledgeBaseApi.getAllKnowledgeBases(sortBy),
+        knowledgeBaseApi.getAllCategories(),
+      ]);
+      setStats(statsData);
+      setKnowledgeBases(kbList);
+      setCategories(categoryList);
+    } catch (error) {
+      console.error('加载数据失败:', error);
+    }
+  }, [searchKeyword, sortBy, selectedCategory]);
+
   // 加载数据
   const loadData = useCallback(async () => {
     try {
@@ -158,6 +182,34 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 轮询：当有 PENDING 或 PROCESSING 状态时，每5秒刷新一次
+  useEffect(() => {
+    const hasPendingItems = knowledgeBases.some(
+      kb => kb.vectorStatus === 'PENDING' || kb.vectorStatus === 'PROCESSING'
+    );
+
+    if (hasPendingItems && !loading) {
+      const timer = setInterval(() => {
+        loadDataSilent();
+      }, 5000);
+
+      return () => clearInterval(timer);
+    }
+  }, [knowledgeBases, loading, loadDataSilent]);
+
+  // 重新向量化
+  const handleRevectorize = async (id: number) => {
+    try {
+      setRevectorizing(id);
+      await knowledgeBaseApi.revectorize(id);
+      await loadDataSilent();
+    } catch (error) {
+      console.error('重新向量化失败:', error);
+    } finally {
+      setRevectorizing(null);
+    }
+  };
 
   // 删除知识库
   const handleDelete = async (id: number) => {
@@ -484,31 +536,45 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
                     {formatDate(kb.uploadedAt)}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    {deleteConfirm === kb.id ? (
-                      <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* 重新向量化按钮（仅 FAILED 状态显示） */}
+                      {kb.vectorStatus === 'FAILED' && (
                         <button
-                          onClick={() => handleDelete(kb.id)}
-                          disabled={deleting}
-                          className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 disabled:opacity-50"
+                          onClick={() => handleRevectorize(kb.id)}
+                          disabled={revectorizing === kb.id}
+                          className="p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 rounded-lg transition-colors disabled:opacity-50"
+                          title="重新向量化"
                         >
-                          {deleting ? '删除中...' : '确认'}
+                          <RefreshCw className={`w-4 h-4 ${revectorizing === kb.id ? 'animate-spin' : ''}`} />
                         </button>
+                      )}
+                      {/* 删除按钮 */}
+                      {deleteConfirm === kb.id ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDelete(kb.id)}
+                            disabled={deleting}
+                            className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 disabled:opacity-50"
+                          >
+                            {deleting ? '删除中...' : '确认'}
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            className="px-3 py-1 bg-slate-100 text-slate-600 text-sm rounded hover:bg-slate-200"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={() => setDeleteConfirm(null)}
-                          className="px-3 py-1 bg-slate-100 text-slate-600 text-sm rounded hover:bg-slate-200"
+                          onClick={() => setDeleteConfirm(kb.id)}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="删除"
                         >
-                          取消
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setDeleteConfirm(kb.id)}
-                        className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </motion.tr>
               ))}
