@@ -347,20 +347,26 @@ public class RedisService {
             String consumerName,
             int count,
             long pendingIdleTimeoutMs) {
-        if (pendingIdleTimeoutMs <= 0) {
+        if (pendingIdleTimeoutMs <= 0 || count <= 0) {
             return Map.of();
         }
 
         String cursorKey = streamKey + ":" + groupName;
         StreamMessageId startId = streamReclaimCursors.getOrDefault(cursorKey, StreamMessageId.MIN);
-        AutoClaimResult<String, String> result = stream.autoClaim(
-            groupName,
-            consumerName,
-            pendingIdleTimeoutMs,
-            TimeUnit.MILLISECONDS,
-            startId,
-            count
-        );
+        AutoClaimResult<String, String> result;
+        try {
+            result = stream.autoClaim(
+                groupName,
+                consumerName,
+                pendingIdleTimeoutMs,
+                TimeUnit.MILLISECONDS,
+                startId,
+                count
+            );
+        } catch (ClassCastException e) {
+            // Redisson 4.0.0 空结果可能触发内部类型转换异常，等价于本轮无可回收消息。
+            return Map.of();
+        }
 
         StreamMessageId nextId = result.getNextId();
         if (nextId == null || StreamMessageId.MIN.equals(nextId)) {
