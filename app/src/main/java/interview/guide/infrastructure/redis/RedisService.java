@@ -32,6 +32,15 @@ import java.util.function.Function;
 /**
  * Redis 服务封装
  * 提供通用的 Redis 操作，包括缓存、分布式锁、Stream 消息队列等
+ *
+ * <p><b>Redisson 版本兼容说明：</b>
+ * <ul>
+ *   <li>当前适配 Redisson 4.0.0。</li>
+ *   <li>{@code stream.readGroup} / {@code stream.autoClaim} 在空结果时可能抛出
+ *       {@link ClassCastException}（Redisson 内部返回 EmptyList 而非空 Map），
+ *       两处均已 catch 并做空结果处理。</li>
+ *   <li>升级 Redisson 后如不再抛此异常，可清理对应的 catch 块。</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -330,6 +339,8 @@ public class RedisService {
         } catch (ClassCastException e) {
             // Redisson 4.0.0 bug: 无消息时返回 EmptyList 而非空 Map，内部强转失败。
             // 等价于"本次无消息"，静默返回即可。
+            log.debug("Redisson 4.0.0 内部类型转换异常（空结果时触发），等价于本批无消息: stream={}, group={}",
+                streamKey, groupName);
             return false;
         }
 
@@ -365,6 +376,8 @@ public class RedisService {
             );
         } catch (ClassCastException e) {
             // Redisson 4.0.0 空结果可能触发内部类型转换异常，等价于本轮无可回收消息。
+            log.debug("Redisson 4.0.0 内部类型转换异常（无可回收消息）: stream={}, group={}",
+                streamKey, groupName);
             return Map.of();
         }
 

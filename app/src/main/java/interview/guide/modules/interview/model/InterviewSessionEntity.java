@@ -101,6 +101,13 @@ public class InterviewSessionEntity {
     // LLM提供商
     @Column(length = 50)
     private String llmProvider = "dashscope";
+
+    // 会话来源：NORMAL / KNOWLEDGE_BASE
+    @Column(length = 32)
+    private String sourceType = "NORMAL";
+
+    // 知识库面试来源知识库 ID
+    private Long knowledgeBaseId;
     
     public enum SessionStatus {
         CREATED,      // 会话已创建
@@ -277,6 +284,22 @@ public class InterviewSessionEntity {
 
     public void setDifficulty(String difficulty) {
         this.difficulty = difficulty;
+    }
+
+    public String getSourceType() {
+        return sourceType;
+    }
+
+    public void setSourceType(String sourceType) {
+        this.sourceType = sourceType;
+    }
+
+    public Long getKnowledgeBaseId() {
+        return knowledgeBaseId;
+    }
+
+    public void setKnowledgeBaseId(Long knowledgeBaseId) {
+        this.knowledgeBaseId = knowledgeBaseId;
     }
 
     public void addAnswer(InterviewAnswerEntity answer) {

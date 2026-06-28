@@ -52,11 +52,14 @@ public class AnswerEvaluationService {
                 .map(q -> new QaRecord(q.questionIndex(), q.question(), q.category(), q.userAnswer()))
                 .toList();
 
-            String referenceContext = skillService.buildEvaluationReferenceSectionSafe(
-                persistenceService.findBySessionId(sessionId)
-                    .map(s -> s.getSkillId())
-                    .orElse(null)
-            );
+            String referenceContext = buildQuestionReferenceContext(questions);
+            if (referenceContext.isBlank()) {
+                referenceContext = skillService.buildEvaluationReferenceSectionSafe(
+                    persistenceService.findBySessionId(sessionId)
+                        .map(s -> s.getSkillId())
+                        .orElse(null)
+                );
+            }
 
             // 调用通用评估服务
             EvaluationReport report = unifiedEvaluationService.evaluate(
@@ -64,7 +67,7 @@ public class AnswerEvaluationService {
             );
 
             // 转为文字面试专用 DTO
-            return toInterviewReportDTO(report);
+            return withQuestionReferences(toInterviewReportDTO(report), questions);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -94,5 +97,72 @@ public class AnswerEvaluationService {
                     ra.referenceAnswer(), ra.keyPoints()))
                 .toList()
         );
+    }
+
+    private InterviewReportDTO withQuestionReferences(InterviewReportDTO report,
+                                                      List<InterviewQuestionDTO> questions) {
+        List<InterviewReportDTO.ReferenceAnswer> references = report.referenceAnswers().stream()
+            .map(reference -> {
+                InterviewQuestionDTO question = questions.stream()
+                    .filter(item -> item.questionIndex() == reference.questionIndex())
+                    .findFirst()
+                    .orElse(null);
+                if (question == null || question.referenceAnswer() == null
+                    || question.referenceAnswer().isBlank()) {
+                    return reference;
+                }
+                return new InterviewReportDTO.ReferenceAnswer(
+                    reference.questionIndex(),
+                    reference.question(),
+                    question.referenceAnswer(),
+                    question.keyPoints() != null ? question.keyPoints() : List.of()
+                );
+            })
+            .toList();
+        return new InterviewReportDTO(
+            report.sessionId(),
+            report.totalQuestions(),
+            report.overallScore(),
+            report.categoryScores(),
+            report.questionDetails(),
+            report.overallFeedback(),
+            report.strengths(),
+            report.improvements(),
+            references
+        );
+    }
+
+    private String buildQuestionReferenceContext(List<InterviewQuestionDTO> questions) {
+        StringBuilder sb = new StringBuilder();
+        for (InterviewQuestionDTO question : questions) {
+            if (!hasQuestionReference(question)) {
+                continue;
+            }
+            sb.append("问题").append(question.questionIndex() + 1).append(": ")
+                .append(question.question()).append('\n');
+            appendIfPresent(sb, "参考答案", question.referenceAnswer());
+            if (question.keyPoints() != null && !question.keyPoints().isEmpty()) {
+                sb.append("评分要点: ").append(String.join("；", question.keyPoints())).append('\n');
+            }
+            appendIfPresent(sb, "评分规则", question.scoringRubric());
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
+    private boolean hasQuestionReference(InterviewQuestionDTO question) {
+        return hasText(question.referenceAnswer())
+            || hasText(question.scoringRubric())
+            || (question.keyPoints() != null && !question.keyPoints().isEmpty());
+    }
+
+    private void appendIfPresent(StringBuilder sb, String label, String value) {
+        if (hasText(value)) {
+            sb.append(label).append(": ").append(value.trim()).append('\n');
+        }
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

@@ -14,6 +14,7 @@ import interview.guide.modules.interview.model.InterviewSessionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +36,7 @@ public class InterviewHistoryService {
     /**
      * 获取面试会话详情
      */
+    @Transactional(readOnly = true)
     public InterviewDetailDTO getInterviewDetail(String sessionId) {
         Optional<InterviewSessionEntity> sessionOpt = interviewPersistenceService.findBySessionId(sessionId);
         if (sessionOpt.isEmpty()) {
@@ -159,4 +161,3 @@ public class InterviewHistoryService {
         }
     }
 }
-

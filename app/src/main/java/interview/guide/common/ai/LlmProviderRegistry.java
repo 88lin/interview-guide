@@ -116,13 +116,11 @@ public class LlmProviderRegistry {
     }
 
     /**
-     * Get a ChatClient for the specified provider, falling back to the default if null or blank.
+     * Get a ChatClient for the specified provider, falling back to the default if null, blank, or
+     * the legacy "default" alias.
      */
     public ChatClient getChatClientOrDefault(String providerId) {
-        if (providerId != null && !providerId.isBlank()) {
-            return getChatClient(providerId);
-        }
-        return getDefaultChatClient();
+        return getChatClient(resolveProviderId(providerId));
     }
 
     /**
@@ -323,8 +321,10 @@ public class LlmProviderRegistry {
     }
 
     private String resolveProviderId(String providerId) {
-        return (providerId != null && !providerId.isBlank())
-            ? providerId : resolveDefaultChatProviderId();
+        if (providerId == null || providerId.isBlank() || "default".equalsIgnoreCase(providerId.trim())) {
+            return resolveDefaultChatProviderId();
+        }
+        return providerId;
     }
 
     private String resolveDefaultChatProviderId() {

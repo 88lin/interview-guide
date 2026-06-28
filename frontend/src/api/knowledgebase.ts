@@ -1,5 +1,6 @@
 import { request } from './request';
 import { streamSse } from './stream';
+import type { InterviewSession } from '../types/interview';
 
 // 向量化状态
 export type VectorStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
@@ -55,6 +56,84 @@ export interface QueryResponse {
   answer: string;
   knowledgeBaseId: number;
   knowledgeBaseName: string;
+}
+
+export type KnowledgeBaseQuestionStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | 'STALE';
+
+export interface KnowledgeBaseQuestionFollowUp {
+  question: string;
+  referenceAnswer?: string | null;
+  keyPoints?: string[];
+  scoringRubric?: string | null;
+}
+
+export interface KnowledgeBaseQuestion {
+  id: number;
+  knowledgeBaseId: number;
+  knowledgeBaseName: string;
+  skillId: string;  // 后端兜底字段，固定为 knowledge-base，不再用于业务筛选
+  difficulty: string;
+  type: string | null;
+  category: string;  // 面试方向，由模型生成或用户填写，用于筛选和开始面试
+  question: string;
+  topicSummary: string | null;
+  referenceAnswer: string | null;
+  keyPoints: string[];
+  scoringRubric: string | null;
+  followUps: KnowledgeBaseQuestionFollowUp[];
+  sourceContext: string | null;
+  status: KnowledgeBaseQuestionStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerateKnowledgeBaseQuestionsRequest {
+  difficulty?: string;
+  questionCount: number;
+  followUpCount?: number;
+  categoryLimit?: number;
+  llmProvider?: string;
+}
+
+export interface KnowledgeBaseQuestionGenerationResult {
+  saved: KnowledgeBaseQuestion[];
+  skipped: number;
+  message: string;
+}
+
+export interface SaveKnowledgeBaseQuestionRequest {
+  difficulty?: string;
+  type?: string | null;
+  category: string;
+  question: string;
+  topicSummary?: string | null;
+  referenceAnswer?: string | null;
+  keyPoints?: string[];
+  scoringRubric?: string | null;
+  followUps?: KnowledgeBaseQuestionFollowUp[];
+  sourceContext?: string | null;
+  status?: KnowledgeBaseQuestionStatus;
+}
+
+export interface ListKnowledgeBaseQuestionsParams {
+  status?: KnowledgeBaseQuestionStatus | '';
+  category?: string;
+  difficulty?: string;
+  keyword?: string;
+}
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface CreateKnowledgeBaseInterviewRequest {
+  knowledgeBaseId: number;
+  category?: string;  // 不传则覆盖全部方向
+  difficulty?: string;
+  mainQuestionCount: number;
+  followUpCount: number;
+  llmProvider?: string;
 }
 
 export const knowledgeBaseApi = {
@@ -164,6 +243,66 @@ export const knowledgeBaseApi = {
    */
   async revectorize(id: number): Promise<void> {
     return request.post(`/api/knowledgebase/${id}/revectorize`);
+  },
+
+  // ========== 知识库面试题库 ==========
+
+  async generateQuestions(
+    id: number,
+    req: GenerateKnowledgeBaseQuestionsRequest
+  ): Promise<KnowledgeBaseQuestionGenerationResult> {
+    return request.post<KnowledgeBaseQuestionGenerationResult>(`/api/knowledgebase/${id}/questions/generate`, req, {
+      timeout: 180000,
+    });
+  },
+
+  async listQuestions(
+    id: number,
+    params?: ListKnowledgeBaseQuestionsParams
+  ): Promise<KnowledgeBaseQuestion[]> {
+    const searchParams = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value) {
+          searchParams.append(key, value);
+        }
+      });
+    }
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    return request.get<KnowledgeBaseQuestion[]>(`/api/knowledgebase/${id}/questions${query}`);
+  },
+
+  async listCategories(id: number): Promise<CategoryCount[]> {
+    return request.get<CategoryCount[]>(`/api/knowledgebase/${id}/questions/categories`);
+  },
+
+  async createQuestion(
+    id: number,
+    req: SaveKnowledgeBaseQuestionRequest
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.post<KnowledgeBaseQuestion>(`/api/knowledgebase/${id}/questions`, req);
+  },
+
+  async updateQuestion(
+    id: number,
+    req: Partial<SaveKnowledgeBaseQuestionRequest>
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.put<KnowledgeBaseQuestion>(`/api/knowledgebase/questions/${id}`, req);
+  },
+
+  async updateQuestionStatus(
+    id: number,
+    status: KnowledgeBaseQuestionStatus
+  ): Promise<KnowledgeBaseQuestion> {
+    return request.put<KnowledgeBaseQuestion>(`/api/knowledgebase/questions/${id}/status`, { status });
+  },
+
+  async deleteQuestion(id: number): Promise<void> {
+    return request.delete(`/api/knowledgebase/questions/${id}`);
+  },
+
+  async createInterviewSession(req: CreateKnowledgeBaseInterviewRequest): Promise<InterviewSession> {
+    return request.post<InterviewSession>('/api/knowledgebase-interviews/sessions', req);
   },
 
   /**

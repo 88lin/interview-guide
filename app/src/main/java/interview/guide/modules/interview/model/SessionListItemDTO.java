@@ -18,6 +18,8 @@ public record SessionListItemDTO(
     AsyncTaskStatus evaluateStatus,
     String evaluateError,
     Integer overallScore,
+    String sourceType,
+    Long knowledgeBaseId,
     LocalDateTime createdAt,
     LocalDateTime completedAt
 ) {
@@ -32,6 +34,8 @@ public record SessionListItemDTO(
             e.getEvaluateStatus(),
             e.getEvaluateError(),
             e.getOverallScore(),
+            e.getSourceType(),
+            e.getKnowledgeBaseId(),
             e.getCreatedAt(),
             e.getCompletedAt()
         );

@@ -32,6 +32,7 @@ type InterviewType = 'all' | 'text' | 'voice';
 interface UnifiedInterviewItem {
   id: string;
   type: 'text' | 'voice';
+  sourceType?: string | null;
   title: string;
   sessionId: string;
   status: string;
@@ -132,8 +133,16 @@ function StatCard({
   );
 }
 
-function TypeBadge({ type }: { type: 'text' | 'voice' }) {
-  if (type === 'voice') {
+function TypeBadge({ item }: { item: UnifiedInterviewItem }) {
+  if (item.sourceType === 'KNOWLEDGE_BASE') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-medium">
+        <FileText className="w-3 h-3" />
+        知识库
+      </span>
+    );
+  }
+  if (item.type === 'voice') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full text-xs font-medium">
         <Mic className="w-3 h-3" />
@@ -238,7 +247,10 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
       return sessions.map((session: TextSessionMeta) => ({
         id: session.sessionId,
         type: 'text' as const,
-        title: getTemplateName(session.skillId, skills),
+        sourceType: session.sourceType,
+        title: session.sourceType === 'KNOWLEDGE_BASE'
+          ? `${getTemplateName(session.skillId, skills)} · 知识库面试`
+          : getTemplateName(session.skillId, skills),
         sessionId: session.sessionId,
         status: session.status,
         evaluateStatus: session.evaluateStatus ?? undefined,
@@ -482,7 +494,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                     className="border-b border-slate-50 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors group"
                   >
                     <td className="px-6 py-4">
-                      <TypeBadge type={item.type} />
+                      <TypeBadge item={item} />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">

@@ -226,6 +226,15 @@ class LlmProviderRegistryTest {
             assertNotNull(client);
             assertSame(client, registry.getChatClient("dashscope"));
         }
+
+        @Test
+        @DisplayName("default providerId 作为默认 provider 别名")
+        void defaultAliasFallsBackToDefault() {
+            ChatClient client = registry.getChatClientOrDefault("default");
+
+            assertNotNull(client);
+            assertSame(client, registry.getChatClient("dashscope"));
+        }
     }
 
     @Test

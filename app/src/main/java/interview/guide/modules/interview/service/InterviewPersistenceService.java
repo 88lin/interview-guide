@@ -50,6 +50,19 @@ public class InterviewPersistenceService {
                                               String llmProvider,
                                               String skillId,
                                               String difficulty) {
+        return saveSession(sessionId, resumeId, totalQuestions, questions, llmProvider, skillId, difficulty,
+            "NORMAL", null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public InterviewSessionEntity saveSession(String sessionId, Long resumeId,
+                                              int totalQuestions,
+                                              List<InterviewQuestionDTO> questions,
+                                              String llmProvider,
+                                              String skillId,
+                                              String difficulty,
+                                              String sourceType,
+                                              Long knowledgeBaseId) {
         try {
             InterviewSessionEntity session = new InterviewSessionEntity();
             session.setSessionId(sessionId);
@@ -60,6 +73,8 @@ public class InterviewPersistenceService {
             session.setLlmProvider(llmProvider != null ? llmProvider : "default");
             session.setSkillId(skillId != null ? skillId : InterviewDefaults.SKILL_ID);
             session.setDifficulty(difficulty != null ? difficulty : InterviewDefaults.DIFFICULTY);
+            session.setSourceType(sourceType != null ? sourceType : "NORMAL");
+            session.setKnowledgeBaseId(knowledgeBaseId);
 
             // 简历可选：有 resumeId 则关联简历
             if (resumeId != null) {
@@ -68,7 +83,8 @@ public class InterviewPersistenceService {
             }
 
             InterviewSessionEntity saved = sessionRepository.save(session);
-            log.info("面试会话已保存: sessionId={}, skillId={}, resumeId={}", sessionId, skillId, resumeId);
+            log.info("面试会话已保存: sessionId={}, skillId={}, resumeId={}, sourceType={}",
+                sessionId, skillId, resumeId, session.getSourceType());
 
             return saved;
         } catch (JacksonException e) {

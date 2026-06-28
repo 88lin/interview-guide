@@ -18,6 +18,8 @@ export interface TextSessionMeta {
   evaluateStatus: string | null;
   evaluateError: string | null;
   overallScore: number | null;
+  sourceType: string | null;
+  knowledgeBaseId: number | null;
   createdAt: string;
   completedAt: string | null;
 }
