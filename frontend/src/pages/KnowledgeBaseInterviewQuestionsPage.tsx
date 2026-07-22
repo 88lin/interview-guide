@@ -3,6 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Archive,
   ArrowLeft,
+  BarChart3,
   Check,
   Loader2,
   Plus,
@@ -382,6 +383,13 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
         </div>
         <div className="flex gap-2 shrink-0">
           <button
+            onClick={() => navigate(`/knowledgebase-interview/${knowledgeBaseIdNum}/interviews`)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 shadow-sm shadow-indigo-500/20 whitespace-nowrap"
+          >
+            <BarChart3 className="w-4 h-4" />
+            查看面试记录
+          </button>
+          <button
             onClick={() => setGenerateOpen(true)}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-primary-200 dark:border-primary-800 text-primary-600 dark:text-primary-400 text-sm font-medium hover:bg-primary-50 dark:hover:bg-primary-900/20 whitespace-nowrap"
           >
@@ -582,6 +590,7 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
           editing={editingQuestion !== null}
           saving={saving}
           error={formError}
+          categoryOptions={categoryOptions}
           onChange={setForm}
           onClose={() => setFormOpen(false)}
           onSubmit={handleSaveQuestion}

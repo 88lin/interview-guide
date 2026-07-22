@@ -1,10 +1,11 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useNavigate} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
+import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 import {historyApi} from '../api/history';
 import {interviewApi, type TextSessionMeta} from '../api/interview';
 import {voiceInterviewApi, SessionMeta} from '../api/voiceInterview';
-import {formatDate} from '../utils/date';
+import {formatDate, formatDateOnly} from '../utils/date';
 import {getScoreProgressColor} from '../utils/score';
 import {skillApi, type SkillDTO} from '../api/skill';
 import {getTemplateName} from '../utils/voiceInterview';
@@ -43,6 +44,7 @@ interface UnifiedInterviewItem {
   actualDuration?: number;
   createdAt: string;
   resumeId?: number;
+  knowledgeBaseId?: number;
   voiceSessionId?: number;
 }
 
@@ -163,6 +165,7 @@ interface InterviewHistoryPageProps {
   onViewInterview: (sessionId: string, resumeId?: number) => void;
   onRestartInterview?: (resumeId: number) => void;
   onContinueInterview?: (sessionId: string) => void;
+  knowledgeBaseId?: number;
 }
 
 /** Shallow comparison for polling change-detection */
@@ -176,8 +179,16 @@ function itemsEqual(a: UnifiedInterviewItem[], b: UnifiedInterviewItem[]): boole
   return true;
 }
 
-export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview, onRestartInterview, onContinueInterview }: InterviewHistoryPageProps) {
+export default function InterviewHistoryPage({
+  onBack: _onBack,
+  onViewInterview,
+  onRestartInterview,
+  onContinueInterview,
+  knowledgeBaseId,
+}: InterviewHistoryPageProps) {
   const navigate = useNavigate();
+  const knowledgeBaseFilterId = knowledgeBaseId ?? null;
+  const isKnowledgeBaseView = knowledgeBaseFilterId !== null && !Number.isNaN(knowledgeBaseFilterId);
   const [items, setItems] = useState<UnifiedInterviewItem[]>([]);
   const [stats, setStats] = useState<InterviewStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -200,17 +211,18 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
         skillsLoadedRef.current = true;
       }
       const loadedSkills = skillsRef.current;
-      const [textInterviews, voiceSessions] = await Promise.all([
-        loadTextInterviews(loadedSkills),
-        loadVoiceInterviews(),
-      ]);
+      const textInterviews = await loadTextInterviews(loadedSkills);
+      const scopedTextInterviews = isKnowledgeBaseView
+        ? textInterviews.filter(item => item.knowledgeBaseId === knowledgeBaseFilterId)
+        : textInterviews.filter(item => item.sourceType !== 'KNOWLEDGE_BASE');
+      const voiceSessions = isKnowledgeBaseView ? [] : await loadVoiceInterviews();
 
       const voiceWithNames = voiceSessions.map(item => {
         const skillName = getTemplateName(item.title, loadedSkills);
         return skillName !== item.title ? { ...item, title: skillName } : item;
       });
 
-      const all = [...textInterviews, ...voiceWithNames];
+      const all = [...scopedTextInterviews, ...voiceWithNames];
       all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setItems(prev => {
@@ -238,7 +250,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, []);
+  }, [isKnowledgeBaseView, knowledgeBaseFilterId]);
 
   // Load text interviews from dedicated API
   async function loadTextInterviews(skills: SkillDTO[]): Promise<UnifiedInterviewItem[]> {
@@ -259,6 +271,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
         totalQuestions: session.totalQuestions,
         createdAt: session.createdAt,
         resumeId: session.resumeId ?? undefined,
+        knowledgeBaseId: session.knowledgeBaseId ?? undefined,
       }));
     } catch {
       return [];
@@ -373,6 +386,16 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
     return true;
   });
 
+  const trendData = useMemo(() => {
+    return items
+      .filter(item => isEvaluateCompleted(item) && item.overallScore !== null)
+      .map(item => ({
+        name: formatDateOnly(item.createdAt),
+        score: item.overallScore || 0,
+      }))
+      .reverse();
+  }, [items]);
+
   return (
     <motion.div className="w-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       {/* Header */}
@@ -384,7 +407,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
             animate={{ opacity: 1, x: 0 }}
           >
             <Users className="w-7 h-7 text-primary-500" />
-            面试记录
+            {isKnowledgeBaseView ? '知识库面试记录' : '面试记录'}
           </motion.h1>
           <motion.p
             className="text-slate-500 dark:text-slate-400 mt-1"
@@ -392,7 +415,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1 }}
           >
-            查看和管理所有模拟面试记录
+            {isKnowledgeBaseView ? '查看当前知识库的面试记录和表现趋势' : '查看和管理所有模拟面试记录'}
           </motion.p>
         </div>
 
@@ -421,8 +444,42 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
         </div>
       )}
 
+      {isKnowledgeBaseView && trendData.length > 0 && (
+        <motion.div
+          className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-100 dark:border-slate-700 mb-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary-500" />
+              <span className="font-semibold text-slate-800 dark:text-white">面试表现趋势</span>
+            </div>
+            <span className="text-sm text-slate-500 dark:text-slate-400">共 {trendData.length} 场练习</span>
+          </div>
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" className="dark:stroke-slate-700" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                <Tooltip formatter={(value) => [`${value} 分`, '得分']} />
+                <Line
+                  type="monotone"
+                  dataKey="score"
+                  stroke="#6366f1"
+                  strokeWidth={3}
+                  dot={{ fill: '#6366f1', strokeWidth: 2, r: 5 }}
+                  activeDot={{ r: 8, fill: '#6366f1' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+      )}
+
       {/* Type filter tabs */}
-      <div className="flex items-center gap-2 mb-6">
+      {!isKnowledgeBaseView && <div className="flex items-center gap-2 mb-6">
         {([
           { key: 'all', label: '全部' },
           { key: 'text', label: '文字面试' },
@@ -440,7 +497,7 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
             {tab.label}
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Loading */}
       {loading && (
@@ -458,7 +515,9 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
         >
           <Users className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
           <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">暂无面试记录</h3>
-          <p className="text-slate-500 dark:text-slate-400">开始一次模拟面试后，记录将显示在这里</p>
+          <p className="text-slate-500 dark:text-slate-400">
+            {isKnowledgeBaseView ? '开始一次知识库面试后，记录将显示在这里' : '开始一次模拟面试后，记录将显示在这里'}
+          </p>
         </motion.div>
       )}
 
@@ -556,7 +615,16 @@ export default function InterviewHistoryPage({ onBack: _onBack, onViewInterview,
                       <div className="flex items-center justify-end gap-1">
                         {item.type === 'text' && !isCompletedStatus(item.status) && !isEvaluateCompleted(item) && onContinueInterview && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); onContinueInterview(item.sessionId); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.sourceType === 'KNOWLEDGE_BASE') {
+                                navigate(`/knowledgebase-interview/${item.sessionId}`, {
+                                  state: { knowledgeBaseId: item.knowledgeBaseId },
+                                });
+                              } else {
+                                onContinueInterview(item.sessionId);
+                              }
+                            }}
                             className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
                             title="继续面试"
                           >
