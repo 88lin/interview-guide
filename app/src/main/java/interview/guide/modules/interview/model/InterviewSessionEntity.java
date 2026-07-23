@@ -108,6 +108,10 @@ public class InterviewSessionEntity {
 
     // 知识库面试来源知识库 ID
     private Long knowledgeBaseId;
+
+    // 知识库面试方向（来自题库 category，普通面试为 null）
+    @Column(length = 64)
+    private String interviewCategory;
     
     public enum SessionStatus {
         CREATED,      // 会话已创建
@@ -300,6 +304,14 @@ public class InterviewSessionEntity {
 
     public void setKnowledgeBaseId(Long knowledgeBaseId) {
         this.knowledgeBaseId = knowledgeBaseId;
+    }
+
+    public String getInterviewCategory() {
+        return interviewCategory;
+    }
+
+    public void setInterviewCategory(String interviewCategory) {
+        this.interviewCategory = interviewCategory;
     }
 
     public void addAnswer(InterviewAnswerEntity answer) {

@@ -7,6 +7,11 @@ import {interviewApi, type TextSessionMeta} from '../api/interview';
 import {voiceInterviewApi, SessionMeta} from '../api/voiceInterview';
 import {formatDate, formatDateOnly} from '../utils/date';
 import {getScoreProgressColor} from '../utils/score';
+import {
+  calculateInterviewStats,
+  isCompletedStatus,
+  isEvaluateCompleted,
+} from './interviewHistoryStats.ts';
 import {skillApi, type SkillDTO} from '../api/skill';
 import {getTemplateName} from '../utils/voiceInterview';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
@@ -17,18 +22,38 @@ import {
   Clock,
   Download,
   FileText,
+  Filter,
   Loader2,
   Mic,
   PlayCircle,
   RefreshCw,
   RotateCcw,
   Search,
+  Tag,
   Trash2,
   TrendingUp,
   Users,
 } from 'lucide-react';
 
 type InterviewType = 'all' | 'text' | 'voice';
+type TimeRange = 'all' | '7d' | '30d' | '90d';
+type CompletionFilter = 'all' | 'inProgress' | 'completed';
+
+const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
+  { value: 'all', label: '全部时间' },
+  { value: '7d', label: '最近 7 天' },
+  { value: '30d', label: '最近 30 天' },
+  { value: '90d', label: '最近 90 天' },
+];
+
+const COMPLETION_OPTIONS: { value: CompletionFilter; label: string }[] = [
+  { value: 'all', label: '全部状态' },
+  { value: 'inProgress', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+];
+
+const UNCATEGORIZED_LABEL = '未指定方向';
+const UNCATEGORIZED_VALUE = '__uncategorized__';
 
 interface UnifiedInterviewItem {
   id: string;
@@ -45,27 +70,12 @@ interface UnifiedInterviewItem {
   createdAt: string;
   resumeId?: number;
   knowledgeBaseId?: number;
+  interviewCategory?: string | null;
   voiceSessionId?: number;
-}
-
-interface InterviewStats {
-  totalCount: number;
-  completedCount: number;
-  averageScore: number;
-}
-
-function isCompletedStatus(status: string): boolean {
-  return status === 'COMPLETED' || status === 'EVALUATED';
 }
 
 function isLiveStatus(status: string): boolean {
   return status === 'IN_PROGRESS' || status === 'PAUSED';
-}
-
-function isEvaluateCompleted(item: UnifiedInterviewItem): boolean {
-  if (item.evaluateStatus === 'COMPLETED') return true;
-  if (item.status === 'EVALUATED') return true;
-  return false;
 }
 
 function isEvaluating(item: UnifiedInterviewItem): boolean {
@@ -190,16 +200,26 @@ export default function InterviewHistoryPage({
   const knowledgeBaseFilterId = knowledgeBaseId ?? null;
   const isKnowledgeBaseView = knowledgeBaseFilterId !== null && !Number.isNaN(knowledgeBaseFilterId);
   const [items, setItems] = useState<UnifiedInterviewItem[]>([]);
-  const [stats, setStats] = useState<InterviewStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<InterviewType>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [timeFilter, setTimeFilter] = useState<TimeRange>('all');
+  const [completionFilter, setCompletionFilter] = useState<CompletionFilter>('all');
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [deleteItem, setDeleteItem] = useState<UnifiedInterviewItem | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
   const pollingRef = useRef<number | null>(null);
   const skillsRef = useRef<SkillDTO[]>([]);
   const skillsLoadedRef = useRef(false);
+
+  const hasActiveKbFilters = categoryFilter !== 'all' || timeFilter !== 'all' || completionFilter !== 'all';
+
+  const resetKbFilters = () => {
+    setCategoryFilter('all');
+    setTimeFilter('all');
+    setCompletionFilter('all');
+  };
 
   const loadAll = useCallback(async (isPolling = false) => {
     if (!isPolling) setLoading(true);
@@ -229,22 +249,6 @@ export default function InterviewHistoryPage({
         if (isPolling && itemsEqual(prev, all)) return prev;
         return all;
       });
-
-      // Compute stats
-      const evaluated = all.filter(i => isEvaluateCompleted(i));
-      const totalScore = evaluated.reduce((sum, i) => sum + (i.overallScore || 0), 0);
-      const newStats = {
-        totalCount: all.length,
-        completedCount: evaluated.length,
-        averageScore: evaluated.length > 0 ? Math.round(totalScore / evaluated.length) : 0,
-      };
-      setStats(prev => {
-        if (isPolling && prev &&
-            prev.totalCount === newStats.totalCount &&
-            prev.completedCount === newStats.completedCount &&
-            prev.averageScore === newStats.averageScore) return prev;
-        return newStats;
-      });
     } catch (err) {
       console.error('加载面试记录失败', err);
     } finally {
@@ -272,6 +276,7 @@ export default function InterviewHistoryPage({
         createdAt: session.createdAt,
         resumeId: session.resumeId ?? undefined,
         knowledgeBaseId: session.knowledgeBaseId ?? undefined,
+        interviewCategory: session.interviewCategory ?? null,
       }));
     } catch {
       return [];
@@ -379,22 +384,64 @@ export default function InterviewHistoryPage({
     }
   };
 
-  // Filter + search
-  const filtered = items.filter(item => {
+  // Filter + search（知识库视图额外支持方向 / 时间范围 / 完成状态筛选，条件之间为 AND 关系）
+  const filtered = useMemo(() => items.filter(item => {
     if (typeFilter !== 'all' && item.type !== typeFilter) return false;
     if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    if (isKnowledgeBaseView) {
+      if (categoryFilter === UNCATEGORIZED_VALUE && item.interviewCategory) return false;
+      if (categoryFilter !== 'all'
+          && categoryFilter !== UNCATEGORIZED_VALUE
+          && item.interviewCategory !== categoryFilter) return false;
+      if (timeFilter !== 'all') {
+        const days = timeFilter === '7d' ? 7 : timeFilter === '30d' ? 30 : 90;
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+        if (new Date(item.createdAt).getTime() < cutoff) return false;
+      }
+      if (completionFilter !== 'all') {
+        const completed = isCompletedStatus(item.status);
+        if (completionFilter === 'completed' && !completed) return false;
+        if (completionFilter === 'inProgress' && completed) return false;
+      }
+    }
     return true;
-  });
+  }), [items, typeFilter, searchTerm, isKnowledgeBaseView, categoryFilter, timeFilter, completionFilter]);
+
+  const categoryOptions = useMemo(() => {
+    const values = new Set<string>();
+    let hasUncategorized = false;
+    items.forEach(item => {
+      if (item.interviewCategory) {
+        values.add(item.interviewCategory);
+      } else {
+        hasUncategorized = true;
+      }
+    });
+    return {
+      values: Array.from(values).sort((a, b) => a.localeCompare(b, 'zh-CN')),
+      hasUncategorized,
+    };
+  }, [items]);
+
+  // 统计数据基于筛选后的记录，保证与列表一致
+  const stats = useMemo(
+    () => calculateInterviewStats(items, filtered, isKnowledgeBaseView),
+    [items, filtered, isKnowledgeBaseView],
+  );
 
   const trendData = useMemo(() => {
-    return items
+    return filtered
       .filter(item => isEvaluateCompleted(item) && item.overallScore !== null)
       .map(item => ({
         name: formatDateOnly(item.createdAt),
         score: item.overallScore || 0,
       }))
       .reverse();
-  }, [items]);
+  }, [filtered]);
+
+  // 筛选无结果（仅知识库视图且存在生效筛选条件时）与原始空状态区分开
+  const showFilterEmpty = isKnowledgeBaseView && hasActiveKbFilters && items.length > 0 && filtered.length === 0;
+  const showOriginalEmpty = filtered.length === 0 && !showFilterEmpty;
 
   return (
     <motion.div className="w-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -436,7 +483,7 @@ export default function InterviewHistoryPage({
       </div>
 
       {/* Stats */}
-      {stats && (
+      {!loading && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <StatCard icon={Users} label="面试总数" value={stats.totalCount} color="bg-primary-500" />
           <StatCard icon={CheckCircle} label="已完成" value={stats.completedCount} color="bg-emerald-500" />
@@ -478,6 +525,60 @@ export default function InterviewHistoryPage({
         </motion.div>
       )}
 
+      {/* 知识库面试记录筛选（仅知识库视图显示） */}
+      {isKnowledgeBaseView && (
+        <motion.div
+          className="flex items-center gap-3 flex-wrap bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl px-4 py-3 mb-6 shadow-sm"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="按面试方向筛选"
+            className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-primary-500 transition-colors cursor-pointer"
+          >
+            <option value="all">全部方向</option>
+            {categoryOptions.values.map(category => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+            {categoryOptions.hasUncategorized && (
+              <option value={UNCATEGORIZED_VALUE}>{UNCATEGORIZED_LABEL}</option>
+            )}
+          </select>
+          <select
+            value={timeFilter}
+            onChange={(e) => setTimeFilter(e.target.value as TimeRange)}
+            aria-label="按时间范围筛选"
+            className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-primary-500 transition-colors cursor-pointer"
+          >
+            {TIME_RANGE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <select
+            value={completionFilter}
+            onChange={(e) => setCompletionFilter(e.target.value as CompletionFilter)}
+            aria-label="按完成状态筛选"
+            className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-primary-500 transition-colors cursor-pointer"
+          >
+            {COMPLETION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          {hasActiveKbFilters && (
+            <button
+              onClick={resetKbFilters}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-primary-500 dark:hover:text-primary-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              重置筛选
+            </button>
+          )}
+        </motion.div>
+      )}
+
       {/* Type filter tabs */}
       {!isKnowledgeBaseView && <div className="flex items-center gap-2 mb-6">
         {([
@@ -506,8 +607,28 @@ export default function InterviewHistoryPage({
         </div>
       )}
 
+      {/* 筛选无结果（知识库视图且筛选条件生效） */}
+      {!loading && showFilterEmpty && (
+        <motion.div
+          className="text-center py-20 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <Search className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">没有符合当前筛选条件的面试记录</h3>
+          <p className="text-slate-500 dark:text-slate-400 mb-6">可以尝试调整面试方向、时间范围或完成状态</p>
+          <button
+            onClick={resetKbFilters}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+            重置筛选
+          </button>
+        </motion.div>
+      )}
+
       {/* Empty */}
-      {!loading && filtered.length === 0 && (
+      {!loading && showOriginalEmpty && (
         <motion.div
           className="text-center py-20 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700"
           initial={{ opacity: 0, scale: 0.95 }}
@@ -563,7 +684,18 @@ export default function InterviewHistoryPage({
                           <Mic className="w-5 h-5 text-purple-400" />
                         )}
                         <div>
-                          <p className="font-medium text-slate-800 dark:text-white">{item.title}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-medium text-slate-800 dark:text-white">{item.title}</p>
+                            {isKnowledgeBaseView && item.type === 'text' && (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded text-xs font-medium"
+                                title="面试方向"
+                              >
+                                <Tag className="w-3 h-3" />
+                                {item.interviewCategory || UNCATEGORIZED_LABEL}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-400 dark:text-slate-500">#{item.id.slice(-8)}</p>
                         </div>
                       </div>

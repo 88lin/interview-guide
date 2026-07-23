@@ -53,6 +53,7 @@ public class InterviewSessionCache {
         private String resumeText;
         private Long resumeId;
         private Long knowledgeBaseId;
+        private String interviewCategory;
         private String questionsJson;  // 序列化的问题列表
         private int currentIndex;
         private SessionStatus status;
@@ -61,12 +62,14 @@ public class InterviewSessionCache {
         }
 
         public CachedSession(String sessionId, String resumeText, Long resumeId, Long knowledgeBaseId,
+                            String interviewCategory,
                             List<InterviewQuestionDTO> questions, int currentIndex,
                             SessionStatus status, ObjectMapper objectMapper) {
             this.sessionId = sessionId;
             this.resumeText = resumeText;
             this.resumeId = resumeId;
             this.knowledgeBaseId = knowledgeBaseId;
+            this.interviewCategory = interviewCategory;
             this.currentIndex = currentIndex;
             this.status = status;
             try {
@@ -89,11 +92,13 @@ public class InterviewSessionCache {
      * 保存会话到缓存
      */
     public void saveSession(String sessionId, String resumeText, Long resumeId, Long knowledgeBaseId,
+                           String interviewCategory,
                            List<InterviewQuestionDTO> questions, int currentIndex,
                            SessionStatus status) {
         String key = buildSessionKey(sessionId);
         CachedSession cachedSession = new CachedSession(
-            sessionId, resumeText, resumeId, knowledgeBaseId, questions, currentIndex, status, objectMapper
+            sessionId, resumeText, resumeId, knowledgeBaseId, interviewCategory,
+            questions, currentIndex, status, objectMapper
         );
 
         redisService.set(key, cachedSession, SESSION_TTL);

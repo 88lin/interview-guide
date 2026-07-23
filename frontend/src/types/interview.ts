@@ -10,6 +10,7 @@ export interface InterviewSession {
   questions: InterviewQuestion[];
   status: 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'EVALUATED';
   knowledgeBaseId?: number | null;
+  interviewCategory?: string | null;
 }
 
 export interface InterviewQuestion {

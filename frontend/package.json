@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:interview-history": "node --test src/pages/interviewHistoryStats.test.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",

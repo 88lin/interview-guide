@@ -320,6 +320,25 @@ docker compose -f docker-compose.dev.yml down
 docker compose -f docker-compose.dev.yml down -v
 ```
 
+如果你之前已经启动过旧版本容器，拉取新代码后建议确认端口映射是否真的生效：
+
+```bash
+docker ps --format '{{.Names}} {{.Ports}}'
+```
+
+正常情况下应看到：
+
+```text
+interview-postgres 0.0.0.0:5432->5432/tcp
+interview-redis    0.0.0.0:6379->6379/tcp
+```
+
+如果只看到 `interview-postgres 5432/tcp` 或 `interview-redis 6379/tcp`，说明容器内部服务是启动的，但端口没有发布到宿主机。此时通过 `./gradlew :app:bootRun` 从宿主机启动后端，会出现类似 `Connection to localhost:5432 refused` 的报错。可以重建容器配置（不会删除 Docker volume 中的数据）：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --force-recreate postgres redis
+```
+
 启动后默认账号：
 
 | 服务         | 地址             | 账号            | 密码            |
@@ -440,13 +459,13 @@ docker image prune -f
 
 ### Q: 数据库表创建失败/数据丢失
 
-检查 JPA 的 `ddl-auto` 配置。`ddl-auto` 模式对比：
+本地开发首先检查 JPA 的 `ddl-auto` 配置。`ddl-auto` 模式对比：
 
 | 模式     | 行为                            | 适用场景      | 数据保留 |
 | -------- | ------------------------------- | ------------- | -------- |
-| **update** | 智能模式：表不存在自动创建，存在则增量更新 | **开发环境（推荐）** | ✅ 保留 |
+| update   | 表不存在自动创建，存在则尝试增量更新 | 早期开发或临时实验，当前项目不推荐 | ✅ 保留 |
 | create   | 无条件删除并重建所有表          | 仅首次建表时使用 | ❌ 删除 |
-| validate | 只验证，不修改                  | 生产环境      | ✅ 保留 |
+| **validate** | 只验证，不修改                  | **当前项目默认推荐，建表和变更交给 Flyway** | ✅ 保留 |
 | none     | 什么都不做                      | 生产环境      | ✅ 保留 |
 
 **推荐配置（已默认）**：
@@ -454,25 +473,48 @@ docker image prune -f
 ```yaml
 jpa:
   hibernate:
-    ddl-auto: update  # 首次启动自动创建表，后续保留数据并增量更新
+    ddl-auto: validate  # 只校验 schema，建表和变更交给 Flyway
 ```
 
 ⚠️ **注意**：避免使用 `create` 模式，否则每次重启都会删除所有数据！
 
 ### Q: 知识库向量化失败
 
-当 `initialize-schema: false` 时，Spring AI **不会自动创建** `vector_store` 表。
+`vector_store` 表已由 Flyway 创建，Spring AI 不再自动建表。
 
 ```java
 spring:
   ai:
     vectorstore:
       pgvector:
-        initialize-schema: true 
+        initialize-schema: false
 
 ```
 
-建议开发环境设置为 true，方便快速启动。生产环境设置为 false，手动管理数据库 schema，避免意外变更。
+建议保持为 false，避免应用启动时绕过 Flyway 修改数据库 schema。
+
+### Q: 数据库迁移需要手动执行脚本吗？
+
+不需要。数据库 schema 已接入 Flyway，后端应用启动时会自动执行 `app/src/main/resources/db/migration/` 下的迁移，并记录到 `flyway_schema_history`。
+
+当前项目通过 `V1__init_schema.sql` 支持空库初始化，后续版本通过增量迁移演进；Hibernate `ddl-auto` 只做 `validate` 校验。测试环境使用 H2，默认关闭 Flyway。
+
+### Q: 启动时报 `Connection to localhost:5432 refused` 怎么办？
+
+这通常不是 Flyway 脚本错误，而是后端从宿主机访问不到 PostgreSQL。先确认依赖容器已启动：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+docker ps --format '{{.Names}} {{.Ports}}'
+```
+
+`interview-postgres` 必须显示 `0.0.0.0:5432->5432/tcp`，`interview-redis` 必须显示 `0.0.0.0:6379->6379/tcp`。如果只显示 `5432/tcp` 或 `6379/tcp`，说明旧容器没有应用端口映射配置，重建容器即可：
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --force-recreate postgres redis
+```
+
+如果你的本机 `5432` 或 `6379` 已被其他项目占用，可以修改 `.env` 中的 `POSTGRES_PORT` / `REDIS_PORT`，并同步调整 `docker-compose.dev.yml` 里的端口映射，确保应用配置和容器发布端口一致。
 
 ### Q: 简历分析失败
 

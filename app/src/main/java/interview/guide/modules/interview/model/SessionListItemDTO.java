@@ -20,6 +20,7 @@ public record SessionListItemDTO(
     Integer overallScore,
     String sourceType,
     Long knowledgeBaseId,
+    String interviewCategory,
     LocalDateTime createdAt,
     LocalDateTime completedAt
 ) {
@@ -36,6 +37,7 @@ public record SessionListItemDTO(
             e.getOverallScore(),
             e.getSourceType(),
             e.getKnowledgeBaseId(),
+            e.getInterviewCategory(),
             e.getCreatedAt(),
             e.getCompletedAt()
         );

@@ -90,7 +90,8 @@ public class KnowledgeBaseInterviewService {
         request.llmProvider(),
         KnowledgeBaseQuestionEntity.DEFAULT_SKILL_ID,
         difficulty,
-        request.knowledgeBaseId()
+        request.knowledgeBaseId(),
+        category
     );
   }
 
