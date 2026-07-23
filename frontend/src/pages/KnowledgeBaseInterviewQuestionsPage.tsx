@@ -17,6 +17,8 @@ import {
   type KnowledgeBaseItem,
   type KnowledgeBaseQuestion,
   type KnowledgeBaseQuestionStatus,
+  type QuestionGenStatus,
+  type QuestionGenStatusResponse,
 } from '../api/knowledgebase';
 import {
   DEFAULT_DIFFICULTY,
@@ -35,6 +37,11 @@ import GenerateKnowledgeBaseQuestionsModal, {
   type GenerateQuestionsConfig,
 } from '../components/knowledgebaseInterview/GenerateKnowledgeBaseQuestionsModal';
 import QuestionCard from '../components/knowledgebaseInterview/QuestionCard';
+import {
+  getQuestionGenerationNotice,
+  isQuestionGenerationActive,
+  shouldRefreshGeneratedQuestions,
+} from './questionGenerationStatus';
 
 interface QuestionFilters {
   status: KnowledgeBaseQuestionStatus | '';
@@ -59,8 +66,7 @@ const STATUS_TABS: Array<{ value: KnowledgeBaseQuestionStatus | ''; label: strin
 
 interface LocationState {
   highlightStatus?: KnowledgeBaseQuestionStatus;
-  generationMessage?: string;
-  generationWarning?: boolean;
+  questionGenTaskId?: string | null;
 }
 
 export default function KnowledgeBaseInterviewQuestionsPage() {
@@ -86,10 +92,12 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
   });
 
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [generateError, setGenerateError] = useState('');
-  const [generationMessage, setGenerationMessage] = useState(routeState?.generationMessage || '');
-  const [generationWarning, setGenerationWarning] = useState(routeState?.generationWarning || false);
+  const [generationStatus, setGenerationStatus] =
+    useState<QuestionGenStatusResponse | null>(null);
+  const [trackedTaskId, setTrackedTaskId] =
+    useState<string | null>(routeState?.questionGenTaskId || null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<KnowledgeBaseQuestion | null>(null);
@@ -158,6 +166,57 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
     loadQuestions();
   }, [loadQuestions]);
 
+  useEffect(() => {
+    if (Number.isNaN(knowledgeBaseIdNum)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let previousStatus: QuestionGenStatus | null = null;
+
+    const poll = async () => {
+      try {
+        const current = await knowledgeBaseApi.getQuestionGenerationStatus(knowledgeBaseIdNum);
+        if (cancelled) return;
+
+        const sameTask = trackedTaskId === null
+          || current.questionGenTaskId === trackedTaskId;
+        setGenerationStatus(current);
+        if (current.questionGenTaskId && trackedTaskId === null
+            && isQuestionGenerationActive(current.questionGenStatus)) {
+          setTrackedTaskId(current.questionGenTaskId);
+        }
+
+        if (shouldRefreshGeneratedQuestions(
+          previousStatus,
+          current.questionGenStatus,
+          sameTask
+        )) {
+          setFilters({
+            status: 'DRAFT',
+            category: '',
+            difficulty: current.questionGenConfig?.difficulty || '',
+            keyword: '',
+          });
+          void loadKnowledgeBase();
+        }
+        previousStatus = current.questionGenStatus;
+
+        if (isQuestionGenerationActive(current.questionGenStatus)) {
+          timer = setTimeout(poll, 3000);
+        }
+      } catch {
+        if (!cancelled && trackedTaskId !== null) {
+          timer = setTimeout(poll, 3000);
+        }
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [knowledgeBaseIdNum, trackedTaskId]);
+
   // 切换筛选/Tab 时清空已选并回到第一页
   useEffect(() => {
     setSelectedIds(new Set());
@@ -223,7 +282,7 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
 
   const handleGenerate = async (config: GenerateQuestionsConfig) => {
     if (Number.isNaN(knowledgeBaseIdNum)) return;
-    setGenerating(true);
+    setSubmitting(true);
     setGenerateError('');
     try {
       const result = await knowledgeBaseApi.generateQuestions(knowledgeBaseIdNum, {
@@ -232,18 +291,28 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
         followUpCount: config.followUpCount,
         categoryLimit: config.categoryLimit,
       });
-      setGenerationMessage(result.message);
-      setGenerationWarning(result.saved.length === 0 && result.skipped > 0);
       setGenerateOpen(false);
-      // 生成后只过滤出"草稿"，方向不限定，方便一次性看到新生成的题目
-      setFilters({ status: 'DRAFT', category: '', difficulty: config.difficulty, keyword: '' });
-      await loadQuestions();
+      setGenerationStatus(result);
+      setTrackedTaskId(result.questionGenTaskId);
     } catch (error) {
       setGenerateError(error instanceof Error ? error.message : '生成失败，请稍后重试');
     } finally {
-      setGenerating(false);
+      setSubmitting(false);
     }
   };
+
+  const generationNotice = generationStatus
+    ? getQuestionGenerationNotice(generationStatus)
+    : null;
+  const generationActive = isQuestionGenerationActive(generationStatus?.questionGenStatus);
+  const retryConfig = generationStatus?.questionGenConfig
+    ? {
+        difficulty: generationStatus.questionGenConfig.difficulty,
+        questionCount: generationStatus.questionGenConfig.questionCount,
+        followUpCount: generationStatus.questionGenConfig.followUpCount,
+        categoryLimit: generationStatus.questionGenConfig.categoryLimit,
+      }
+    : null;
 
   const handleSaveQuestion = async (event: FormEvent) => {
     event.preventDefault();
@@ -391,10 +460,13 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
           </button>
           <button
             onClick={() => setGenerateOpen(true)}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-primary-200 dark:border-primary-800 text-primary-600 dark:text-primary-400 text-sm font-medium hover:bg-primary-50 dark:hover:bg-primary-900/20 whitespace-nowrap"
+            disabled={generationActive}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-primary-200 dark:border-primary-800 text-primary-600 dark:text-primary-400 text-sm font-medium hover:bg-primary-50 dark:hover:bg-primary-900/20 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
           >
-            <Sparkles className="w-4 h-4" />
-            生成题目
+            {generationActive
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Sparkles className="w-4 h-4" />}
+            {generationActive ? '生成中' : '生成题目'}
           </button>
           <button
             onClick={openCreateForm}
@@ -531,14 +603,33 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
       )}
 
       <div className="space-y-3">
-        {generationMessage && (
-          <p className={`text-sm ${
-            generationWarning
-              ? 'text-amber-600 dark:text-amber-400'
-              : 'text-emerald-600 dark:text-emerald-400'
+        {generationNotice && (
+          <div className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
+            generationNotice.tone === 'error'
+              ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-900/20 dark:text-red-400'
+              : generationNotice.tone === 'warning'
+                ? 'border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900 dark:bg-amber-900/20 dark:text-amber-400'
+                : generationNotice.tone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-400'
+                  : 'border-primary-200 bg-primary-50 text-primary-600 dark:border-primary-900 dark:bg-primary-900/20 dark:text-primary-400'
           }`}>
-            {generationMessage}
-          </p>
+            <span className="inline-flex items-center gap-2">
+              {generationActive && <Loader2 className="w-4 h-4 animate-spin" />}
+              {generationNotice.text}
+            </span>
+            {generationStatus?.questionGenStatus === 'FAILED' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGenerateError('');
+                  setGenerateOpen(true);
+                }}
+                className="shrink-0 font-medium underline underline-offset-2"
+              >
+                重新生成
+              </button>
+            )}
+          </div>
         )}
         {actionError && <p className="text-sm text-red-500">{actionError}</p>}
         {loadingQuestions ? (
@@ -550,7 +641,8 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
             <p>当前条件下暂无题目</p>
             <button
               onClick={() => setGenerateOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-500 text-white text-sm font-medium hover:bg-primary-600"
+              disabled={generationActive}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-500 text-white text-sm font-medium hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Sparkles className="w-4 h-4" />
               生成第一批题目
@@ -602,10 +694,11 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
         knowledgeBaseName={knowledgeBase.name}
         defaultDifficulty={DEFAULT_DIFFICULTY}
         defaultCategoryLimit={DEFAULT_CATEGORY_LIMIT}
-        generating={generating}
+        initialConfig={retryConfig}
+        submitting={submitting}
         error={generateError}
         onClose={() => {
-          if (!generating) {
+          if (!submitting) {
             setGenerateOpen(false);
             setGenerateError('');
           }

@@ -23,7 +23,8 @@ interface GenerateKnowledgeBaseQuestionsModalProps {
   knowledgeBaseName: string;
   defaultDifficulty?: string;
   defaultCategoryLimit?: number;
-  generating: boolean;
+  initialConfig?: GenerateQuestionsConfig | null;
+  submitting: boolean;
   error: string;
   onClose: () => void;
   onSubmit: (config: GenerateQuestionsConfig) => void;
@@ -34,7 +35,8 @@ export default function GenerateKnowledgeBaseQuestionsModal({
   knowledgeBaseName,
   defaultDifficulty = DEFAULT_DIFFICULTY,
   defaultCategoryLimit = DEFAULT_CATEGORY_LIMIT,
-  generating,
+  initialConfig,
+  submitting,
   error,
   onClose,
   onSubmit,
@@ -46,12 +48,12 @@ export default function GenerateKnowledgeBaseQuestionsModal({
 
   useEffect(() => {
     if (open) {
-      setDifficulty(defaultDifficulty);
-      setQuestionCount(5);
-      setFollowUpCount(2);
-      setCategoryLimit(defaultCategoryLimit);
+      setDifficulty(initialConfig?.difficulty || defaultDifficulty);
+      setQuestionCount(initialConfig?.questionCount || 5);
+      setFollowUpCount(initialConfig?.followUpCount ?? 2);
+      setCategoryLimit(initialConfig?.categoryLimit || defaultCategoryLimit);
     }
-  }, [open, defaultDifficulty, defaultCategoryLimit]);
+  }, [open, defaultDifficulty, defaultCategoryLimit, initialConfig]);
 
   return (
     <AnimatePresence>
@@ -80,7 +82,7 @@ export default function GenerateKnowledgeBaseQuestionsModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  disabled={generating}
+                  disabled={submitting}
                   className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50"
                 >
                   <X className="w-5 h-5" />
@@ -158,7 +160,7 @@ export default function GenerateKnowledgeBaseQuestionsModal({
                 <button
                   type="button"
                   onClick={onClose}
-                  disabled={generating}
+                  disabled={submitting}
                   className="px-5 py-2.5 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-xl font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
                 >
                   取消
@@ -166,13 +168,13 @@ export default function GenerateKnowledgeBaseQuestionsModal({
                 <motion.button
                   type="button"
                   onClick={() => onSubmit({ difficulty, questionCount, followUpCount, categoryLimit })}
-                  disabled={generating}
+                  disabled={submitting}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className="px-5 py-2.5 inline-flex items-center gap-2 text-white rounded-xl font-semibold shadow-lg bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {generating ? '生成中…' : '开始生成'}
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {submitting ? '提交中…' : '开始生成'}
                 </motion.button>
               </div>
             </motion.div>

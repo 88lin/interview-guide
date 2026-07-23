@@ -22,8 +22,8 @@ test('只有同一任务首次进入 COMPLETED 时刷新题目', () => {
 test('状态提示不暴露后端异常细节', () => {
   assert.deepEqual(getQuestionGenerationNotice({
     questionGenStatus: 'FAILED',
-    questionGenMessage: null,
-    questionGenError: '数据库连接 jdbc:postgresql://internal-host 失败',
+    message: null,
+    error: '数据库连接 jdbc:postgresql://internal-host 失败',
     savedCount: 0,
     skippedCount: 0,
   }), {

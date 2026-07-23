@@ -4,6 +4,7 @@ import type { InterviewSession } from '../types/interview';
 
 // 向量化状态
 export type VectorStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type QuestionGenStatus = 'NONE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export interface KnowledgeBaseItem {
   id: number;
@@ -19,6 +20,8 @@ export interface KnowledgeBaseItem {
   vectorStatus: VectorStatus;
   vectorError: string | null;
   chunkCount: number;
+  questionGenStatus: QuestionGenStatus;
+  questionGenError: string | null;
 }
 
 // 统计信息
@@ -95,10 +98,24 @@ export interface GenerateKnowledgeBaseQuestionsRequest {
   llmProvider?: string;
 }
 
-export interface KnowledgeBaseQuestionGenerationResult {
-  saved: KnowledgeBaseQuestion[];
-  skipped: number;
-  message: string;
+export interface QuestionGenerationConfig {
+  difficulty: string;
+  questionCount: number;
+  followUpCount: number;
+  categoryLimit: number;
+  llmProvider: string | null;
+}
+
+export interface QuestionGenStatusResponse {
+  knowledgeBaseId: number;
+  questionGenStatus: QuestionGenStatus;
+  questionGenTaskId: string | null;
+  questionGenConfig: QuestionGenerationConfig | null;
+  savedCount: number;
+  skippedCount: number;
+  message: string | null;
+  error: string | null;
+  updatedAt: string | null;
 }
 
 export interface SaveKnowledgeBaseQuestionRequest {
@@ -250,10 +267,17 @@ export const knowledgeBaseApi = {
   async generateQuestions(
     id: number,
     req: GenerateKnowledgeBaseQuestionsRequest
-  ): Promise<KnowledgeBaseQuestionGenerationResult> {
-    return request.post<KnowledgeBaseQuestionGenerationResult>(`/api/knowledgebase/${id}/questions/generate`, req, {
-      timeout: 180000,
-    });
+  ): Promise<QuestionGenStatusResponse> {
+    return request.post<QuestionGenStatusResponse>(
+      `/api/knowledgebase/${id}/questions/generate`,
+      req
+    );
+  },
+
+  async getQuestionGenerationStatus(id: number): Promise<QuestionGenStatusResponse> {
+    return request.get<QuestionGenStatusResponse>(
+      `/api/knowledgebase/${id}/questions/generation-status`
+    );
   },
 
   async listQuestions(

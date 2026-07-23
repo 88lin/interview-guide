@@ -12,7 +12,6 @@ import {
 import {
   knowledgeBaseApi,
   type KnowledgeBaseItem,
-  type KnowledgeBaseQuestionStatus,
 } from '../api/knowledgebase';
 import { DEFAULT_DIFFICULTY, DEFAULT_CATEGORY_LIMIT, INPUT_CLASS } from '../constants/knowledgebaseInterview';
 import StartKnowledgeBaseInterviewModal, {
@@ -22,6 +21,7 @@ import GenerateKnowledgeBaseQuestionsModal, {
   type GenerateQuestionsConfig,
 } from '../components/knowledgebaseInterview/GenerateKnowledgeBaseQuestionsModal';
 import KnowledgeBaseCard from '../components/knowledgebaseInterview/KnowledgeBaseCard';
+import { isQuestionGenerationActive } from './questionGenerationStatus';
 
 type SortKey = 'time' | 'name' | 'question';
 
@@ -43,7 +43,7 @@ export default function KnowledgeBaseInterviewLandingPage() {
   const [startError, setStartError] = useState('');
 
   const [generateTarget, setGenerateTarget] = useState<KnowledgeBaseItem | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [generateError, setGenerateError] = useState('');
 
   const loadKnowledgeBases = useCallback(async () => {
@@ -59,6 +59,34 @@ export default function KnowledgeBaseInterviewLandingPage() {
   useEffect(() => {
     loadKnowledgeBases();
   }, [loadKnowledgeBases]);
+
+  const hasActiveGeneration = knowledgeBases.some(kb =>
+    isQuestionGenerationActive(kb.questionGenStatus)
+  );
+
+  useEffect(() => {
+    if (!hasActiveGeneration) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const list = await knowledgeBaseApi.getAllKnowledgeBases(
+          sortKey === 'question' ? 'question' : 'time',
+          'COMPLETED'
+        );
+        if (!cancelled) setKnowledgeBases(list);
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 5000);
+      }
+    };
+
+    timer = setTimeout(poll, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [hasActiveGeneration, sortKey]);
 
   const filteredAndSorted = useMemo(() => {
     const trimmed = keyword.trim().toLowerCase();
@@ -90,6 +118,7 @@ export default function KnowledgeBaseInterviewLandingPage() {
   };
 
   const handleGenerate = (kb: KnowledgeBaseItem) => {
+    if (isQuestionGenerationActive(kb.questionGenStatus)) return;
     setGenerateTarget(kb);
     setGenerateError('');
   };
@@ -124,7 +153,7 @@ export default function KnowledgeBaseInterviewLandingPage() {
 
   const handleGenerateSubmit = async (config: GenerateQuestionsConfig) => {
     if (!generateTarget) return;
-    setGenerating(true);
+    setSubmitting(true);
     setGenerateError('');
     try {
       const result = await knowledgeBaseApi.generateQuestions(generateTarget.id, {
@@ -136,15 +165,14 @@ export default function KnowledgeBaseInterviewLandingPage() {
       setGenerateTarget(null);
       navigate(`/knowledgebase-interview/${generateTarget.id}/questions`, {
         state: {
-          highlightStatus: 'DRAFT' as KnowledgeBaseQuestionStatus,
-          generationMessage: result.message,
-          generationWarning: result.saved.length === 0 && result.skipped > 0,
+          highlightStatus: 'DRAFT',
+          questionGenTaskId: result.questionGenTaskId,
         },
       });
     } catch (error) {
       setGenerateError(error instanceof Error ? error.message : '生成失败，请稍后重试');
     } finally {
-      setGenerating(false);
+      setSubmitting(false);
     }
   };
 
@@ -247,10 +275,10 @@ export default function KnowledgeBaseInterviewLandingPage() {
         knowledgeBaseName={generateTarget?.name || ''}
         defaultDifficulty={DEFAULT_DIFFICULTY}
         defaultCategoryLimit={DEFAULT_CATEGORY_LIMIT}
-        generating={generating}
+        submitting={submitting}
         error={generateError}
         onClose={() => {
-          if (!generating) {
+          if (!submitting) {
             setGenerateTarget(null);
             setGenerateError('');
           }
