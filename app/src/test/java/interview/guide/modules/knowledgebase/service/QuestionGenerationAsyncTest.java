@@ -4,7 +4,6 @@ import interview.guide.common.ai.LlmProviderRegistry;
 import interview.guide.common.ai.PromptSanitizer;
 import interview.guide.common.ai.StructuredOutputInvoker;
 import interview.guide.common.exception.BusinessException;
-import interview.guide.common.transaction.TransactionalExecutor;
 import interview.guide.modules.knowledgebase.listener.QuestionGenStreamConsumer;
 import interview.guide.modules.knowledgebase.listener.QuestionGenStreamProducer;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
@@ -12,6 +11,8 @@ import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatus;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
+import interview.guide.modules.knowledgebase.model.QuestionGenerationConfig;
+import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRepository;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
 import interview.guide.infrastructure.redis.RedisService;
@@ -75,8 +76,6 @@ class QuestionGenerationAsyncTest {
   @Mock
   private QuestionGenStreamProducer questionGenStreamProducer;
   @Mock
-  private TransactionalExecutor transactionalExecutor;
-  @Mock
   private RedisService redisService;
   @Mock
   private ChatClient chatClient;
@@ -84,9 +83,16 @@ class QuestionGenerationAsyncTest {
   private final ObjectMapper objectMapper = new ObjectMapper();
   private KnowledgeBaseQuestionService questionService;
   private KnowledgeBaseQuestionGenerationService generationService;
+  private QuestionGenerationStateService stateService;
 
   @BeforeEach
   void setUp() throws Exception {
+    stateService = new QuestionGenerationStateService(
+        knowledgeBaseRepository,
+        questionRepository,
+        objectMapper
+    );
+
     questionService = new KnowledgeBaseQuestionService(
         knowledgeBaseRepository,
         questionRepository,
@@ -95,7 +101,8 @@ class QuestionGenerationAsyncTest {
         structuredOutputInvoker,
         promptSanitizer,
         objectMapper,
-        questionGenStreamProducer
+        questionGenStreamProducer,
+        stateService
     );
 
     generationService = new KnowledgeBaseQuestionGenerationService(
@@ -105,7 +112,7 @@ class QuestionGenerationAsyncTest {
         llmProviderRegistry,
         structuredOutputInvoker,
         promptSanitizer,
-        transactionalExecutor,
+        stateService,
         objectMapper
     );
 
@@ -121,12 +128,6 @@ class QuestionGenerationAsyncTest {
         .thenReturn(List.of(new Document("知识库片段内容")));
     lenient().when(llmProviderRegistry.getPlainChatClient(nullable(String.class))).thenReturn(chatClient);
 
-    // TransactionalExecutor 直接执行
-    doAnswer(inv -> {
-      Runnable action = inv.getArgument(0);
-      action.run();
-      return null;
-    }).when(transactionalExecutor).run(any(Runnable.class));
   }
 
   private void setField(Class<?> clazz, String fieldName, Object value) throws Exception {
@@ -140,6 +141,7 @@ class QuestionGenerationAsyncTest {
     kb.setId(id);
     kb.setName("测试知识库");
     kb.setFileHash("hash-test");
+    kb.setVectorStatus(VectorStatus.COMPLETED);
     kb.setQuestionGenStatus(status);
     kb.setQuestionGenTaskId(taskId);
     return kb;
@@ -153,8 +155,9 @@ class QuestionGenerationAsyncTest {
     @DisplayName("首次提交后状态变为 QUEUED，并成功投递 Redis Stream 消息")
     void shouldSetQueuedAndSendToStream() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.NONE, null);
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(knowledgeBaseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+      when(questionGenStreamProducer.sendGenerateTask(eq(1L), anyString())).thenReturn(true);
 
       QuestionGenStatusResponse response = questionService.submitGenerationTask(
           1L, new GenerateKnowledgeBaseQuestionsRequest("mid", 5, 2, 3, null));
@@ -163,35 +166,35 @@ class QuestionGenerationAsyncTest {
       assertThat(response.questionGenTaskId()).isNotNull();
       assertThat(kb.getQuestionGenStatus()).isEqualTo(QuestionGenStatus.QUEUED);
       assertThat(kb.getQuestionGenTaskId()).isEqualTo(response.questionGenTaskId());
-      verify(questionGenStreamProducer).sendGenerateTask(any());
+      verify(questionGenStreamProducer).sendGenerateTask(eq(1L), anyString());
     }
 
     @Test
     @DisplayName("等待处理时重复提交会被拒绝")
     void shouldRejectWhenAlreadyQueued() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.QUEUED, "existing-task");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
 
       assertThatThrownBy(() -> questionService.submitGenerationTask(
           1L, new GenerateKnowledgeBaseQuestionsRequest("mid", 5, 2, 3, null)))
           .isInstanceOf(BusinessException.class)
           .hasMessageContaining("正在生成中");
 
-      verify(questionGenStreamProducer, never()).sendGenerateTask(any());
+      verify(questionGenStreamProducer, never()).sendGenerateTask(any(), anyString());
     }
 
     @Test
     @DisplayName("生成中时重复提交会被拒绝")
     void shouldRejectWhenAlreadyProcessing() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "existing-task");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
 
       assertThatThrownBy(() -> questionService.submitGenerationTask(
           1L, new GenerateKnowledgeBaseQuestionsRequest("mid", 5, 2, 3, null)))
           .isInstanceOf(BusinessException.class)
           .hasMessageContaining("正在生成中");
 
-      verify(questionGenStreamProducer, never()).sendGenerateTask(any());
+      verify(questionGenStreamProducer, never()).sendGenerateTask(any(), anyString());
     }
 
     @Test
@@ -199,8 +202,9 @@ class QuestionGenerationAsyncTest {
     void shouldAllowResubmitAfterFailed() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.FAILED, "old-task");
       kb.setQuestionGenError("之前的错误");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(knowledgeBaseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+      when(questionGenStreamProducer.sendGenerateTask(eq(1L), anyString())).thenReturn(true);
 
       QuestionGenStatusResponse response = questionService.submitGenerationTask(
           1L, new GenerateKnowledgeBaseQuestionsRequest("mid", 5, 2, 3, null));
@@ -219,62 +223,62 @@ class QuestionGenerationAsyncTest {
     @DisplayName("Consumer 开始执行后状态变为 PROCESSING")
     void shouldMarkProcessing() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.QUEUED, "task-1");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(knowledgeBaseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
       // 模拟 Consumer 的 shouldSkip 检查
       QuestionGenStreamConsumer consumer = new QuestionGenStreamConsumer(
-          redisService, knowledgeBaseRepository, generationService);
+          redisService, generationService, stateService, questionGenStreamProducer);
 
-      // shouldSkip 应返回 false
-      boolean skip = invokeShouldSkip(consumer,
+      boolean claimed = invokeTryMarkProcessing(consumer,
           new QuestionGenStreamConsumer.QuestionGenPayload(
-              1L, "task-1", "mid", 5, 2, 3, null));
-      assertThat(skip).isFalse();
+              1L, "task-1"));
+      assertThat(claimed).isTrue();
+      assertThat(kb.getQuestionGenStatus()).isEqualTo(QuestionGenStatus.PROCESSING);
     }
 
     @Test
     @DisplayName("知识库已删除时 Consumer 跳过任务")
     void shouldSkipWhenKbDeleted() {
-      when(knowledgeBaseRepository.findById(99L)).thenReturn(Optional.empty());
+      when(knowledgeBaseRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
       QuestionGenStreamConsumer consumer = new QuestionGenStreamConsumer(
-          redisService, knowledgeBaseRepository, generationService);
+          redisService, generationService, stateService, questionGenStreamProducer);
 
-      boolean skip = invokeShouldSkip(consumer,
+      boolean claimed = invokeTryMarkProcessing(consumer,
           new QuestionGenStreamConsumer.QuestionGenPayload(
-              99L, "task-1", "mid", 5, 2, 3, null));
-      assertThat(skip).isTrue();
+              99L, "task-1"));
+      assertThat(claimed).isFalse();
     }
 
     @Test
     @DisplayName("旧任务ID不匹配时 Consumer 跳过任务（幂等性）")
     void shouldSkipWhenTaskIdMismatch() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.QUEUED, "newer-task");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
 
       QuestionGenStreamConsumer consumer = new QuestionGenStreamConsumer(
-          redisService, knowledgeBaseRepository, generationService);
+          redisService, generationService, stateService, questionGenStreamProducer);
 
-      boolean skip = invokeShouldSkip(consumer,
+      boolean claimed = invokeTryMarkProcessing(consumer,
           new QuestionGenStreamConsumer.QuestionGenPayload(
-              1L, "old-task", "mid", 5, 2, 3, null));
-      assertThat(skip).isTrue();
+              1L, "old-task"));
+      assertThat(claimed).isFalse();
     }
 
     @Test
     @DisplayName("状态非 QUEUED 时 Consumer 跳过任务（重复消费幂等）")
     void shouldSkipWhenStatusNotQueued() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.COMPLETED, "task-1");
-      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
 
       QuestionGenStreamConsumer consumer = new QuestionGenStreamConsumer(
-          redisService, knowledgeBaseRepository, generationService);
+          redisService, generationService, stateService, questionGenStreamProducer);
 
-      boolean skip = invokeShouldSkip(consumer,
+      boolean claimed = invokeTryMarkProcessing(consumer,
           new QuestionGenStreamConsumer.QuestionGenPayload(
-              1L, "task-1", "mid", 5, 2, 3, null));
-      assertThat(skip).isTrue();
+              1L, "task-1"));
+      assertThat(claimed).isFalse();
     }
 
     @Test
@@ -282,8 +286,10 @@ class QuestionGenerationAsyncTest {
     void shouldResetToQueuedBeforeRetry() throws Exception {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.QUEUED, "task-1");
       when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
-      when(knowledgeBaseRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-      when(redisService.streamAdd(anyString(), any(), anyInt())).thenReturn("2-0");
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
+      kb.setQuestionGenConfig(objectMapper.writeValueAsString(
+          new QuestionGenerationConfig("mid", 5, 2, 3, null)));
+      when(questionGenStreamProducer.sendGenerateTask(1L, "task-1", 1)).thenReturn(true);
 
       KnowledgeBaseQuestionGenerationService failingService =
           mock(KnowledgeBaseQuestionGenerationService.class);
@@ -291,10 +297,10 @@ class QuestionGenerationAsyncTest {
           interview.guide.common.exception.ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
           "模拟失败"))
           .when(failingService)
-          .executeGeneration(1L, "task-1", "mid", 5, 2, 3, null);
+          .executeGeneration(eq(1L), eq("task-1"), any(QuestionGenerationConfig.class));
 
       QuestionGenStreamConsumer consumer = new QuestionGenStreamConsumer(
-          redisService, knowledgeBaseRepository, failingService);
+          redisService, failingService, stateService, questionGenStreamProducer);
       invokeProcessMessage(consumer, Map.of(
           interview.guide.common.constant.AsyncTaskStreamConstants.FIELD_KB_ID, "1",
           interview.guide.common.constant.AsyncTaskStreamConstants.FIELD_TASK_ID, "task-1",
@@ -306,10 +312,7 @@ class QuestionGenerationAsyncTest {
       ));
 
       assertThat(kb.getQuestionGenStatus()).isEqualTo(QuestionGenStatus.QUEUED);
-      verify(redisService).streamAdd(
-          eq(interview.guide.common.constant.AsyncTaskStreamConstants.KB_QUESTION_GEN_STREAM_KEY),
-          any(),
-          eq(interview.guide.common.constant.AsyncTaskStreamConstants.STREAM_MAX_LEN));
+      verify(questionGenStreamProducer).sendGenerateTask(1L, "task-1", 1);
     }
   }
 
@@ -323,6 +326,7 @@ class QuestionGenerationAsyncTest {
     void shouldReplaceOldQuestionsOnSuccess() throws Exception {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
       when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of());
       when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
           .thenReturn(List.of());
@@ -337,7 +341,8 @@ class QuestionGenerationAsyncTest {
               List.of("要点"), "规则", List.of())
       )));
 
-      generationService.executeGeneration(1L, "task-1", "mid", 5, 2, 3, null);
+      generationService.executeGeneration(
+          1L, "task-1", new QuestionGenerationConfig("mid", 5, 2, 3, null));
 
       // 验证删除旧问题
       verify(questionRepository).deleteByKnowledgeBaseId(1L);
@@ -353,6 +358,7 @@ class QuestionGenerationAsyncTest {
     void shouldThrowWhenLlmFails() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
       when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of());
       when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
           .thenReturn(List.of());
@@ -364,7 +370,8 @@ class QuestionGenerationAsyncTest {
               "LLM调用超时"));
 
       assertThatThrownBy(() ->
-          generationService.executeGeneration(1L, "task-1", "mid", 5, 2, 3, null))
+          generationService.executeGeneration(
+              1L, "task-1", new QuestionGenerationConfig("mid", 5, 2, 3, null)))
           .isInstanceOf(BusinessException.class)
           .hasMessageContaining("LLM调用超时");
 
@@ -379,7 +386,8 @@ class QuestionGenerationAsyncTest {
       when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
 
       // 不应抛异常，只是静默放弃
-      generationService.executeGeneration(1L, "old-task", "mid", 5, 2, 3, null);
+      generationService.executeGeneration(
+          1L, "old-task", new QuestionGenerationConfig("mid", 5, 2, 3, null));
 
       verify(questionRepository, never()).deleteByKnowledgeBaseId(any());
       verify(questionRepository, never()).saveAll(anyList());
@@ -390,6 +398,7 @@ class QuestionGenerationAsyncTest {
     void shouldAbortWhenTaskIdChangesDuringLlmCall() {
       KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
       when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
       when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of());
       when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
           .thenReturn(List.of());
@@ -406,7 +415,8 @@ class QuestionGenerationAsyncTest {
             ));
           });
 
-      generationService.executeGeneration(1L, "task-1", "mid", 5, 2, 3, null);
+      generationService.executeGeneration(
+          1L, "task-1", new QuestionGenerationConfig("mid", 5, 2, 3, null));
 
       verify(questionRepository, never()).deleteByKnowledgeBaseId(any());
       verify(questionRepository, never()).saveAll(anyList());
@@ -415,16 +425,12 @@ class QuestionGenerationAsyncTest {
 
   // ========== 辅助方法 ==========
 
-  private boolean invokeShouldSkip(QuestionGenStreamConsumer consumer,
-                                   QuestionGenStreamConsumer.QuestionGenPayload payload) {
+  private boolean invokeTryMarkProcessing(
+      QuestionGenStreamConsumer consumer,
+      QuestionGenStreamConsumer.QuestionGenPayload payload
+  ) {
     try {
-      var method = QuestionGenStreamConsumer.class.getDeclaredMethod("shouldSkip", Object.class);
-      // shouldSkip 是 protected，通过父类方法调用
-      var parentMethod = interview.guide.common.async.AbstractStreamConsumer.class
-          .getDeclaredMethod("shouldSkip", Object.class);
-      parentMethod.setAccessible(true);
-      // 实际上 shouldSkip 被子类 override，直接反射子类
-      var consumerMethod = QuestionGenStreamConsumer.class.getDeclaredMethod("shouldSkip",
+      var consumerMethod = QuestionGenStreamConsumer.class.getDeclaredMethod("tryMarkProcessing",
           QuestionGenStreamConsumer.QuestionGenPayload.class);
       consumerMethod.setAccessible(true);
       return (boolean) consumerMethod.invoke(consumer, payload);

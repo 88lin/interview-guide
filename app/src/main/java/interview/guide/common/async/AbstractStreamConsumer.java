@@ -119,7 +119,11 @@ public abstract class AbstractStreamConsumer<T> {
                 log.info("{} task skipped: {}", taskDisplayName(), payloadIdentifier(payload));
                 return;
             }
-            markProcessing(payload);
+            if (!tryMarkProcessing(payload)) {
+                ackMessage(messageId);
+                log.info("{} task was not claimed: {}", taskDisplayName(), payloadIdentifier(payload));
+                return;
+            }
             processBusiness(payload);
             markCompleted(payload);
             ackMessage(messageId);
@@ -186,6 +190,14 @@ public abstract class AbstractStreamConsumer<T> {
     }
 
     protected abstract void markProcessing(T payload);
+
+    /**
+     * 尝试领取任务。默认保持原有消费者的状态更新语义。
+     */
+    protected boolean tryMarkProcessing(T payload) {
+        markProcessing(payload);
+        return true;
+    }
 
     protected abstract void processBusiness(T payload);
 

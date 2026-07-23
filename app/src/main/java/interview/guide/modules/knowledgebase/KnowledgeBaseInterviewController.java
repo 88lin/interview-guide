@@ -7,8 +7,8 @@ import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewR
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseQuestionRequest;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionDTO;
-import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionGenerationResult;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
+import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
 import interview.guide.modules.knowledgebase.model.UpdateKnowledgeBaseQuestionRequest;
 import interview.guide.modules.knowledgebase.model.UpdateKnowledgeBaseQuestionStatusRequest;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRepository.CategoryCount;
@@ -52,10 +52,15 @@ public class KnowledgeBaseInterviewController {
   @PostMapping("/api/knowledgebase/{id}/questions/generate")
   @RateLimit(dimension = RateLimit.Dimension.GLOBAL, count = 2)
   @RateLimit(dimension = RateLimit.Dimension.IP, count = 2)
-  public Result<KnowledgeBaseQuestionGenerationResult> generateQuestions(
+  public Result<QuestionGenStatusResponse> generateQuestions(
       @PathVariable Long id,
       @Valid @RequestBody GenerateKnowledgeBaseQuestionsRequest request) {
-    return Result.success(questionService.generateDraftQuestions(id, request));
+    return Result.success(questionService.submitGenerationTask(id, request));
+  }
+
+  @GetMapping("/api/knowledgebase/{id}/questions/generation-status")
+  public Result<QuestionGenStatusResponse> getQuestionGenerationStatus(@PathVariable Long id) {
+    return Result.success(questionService.getGenerationStatus(id));
   }
 
   @PostMapping("/api/knowledgebase/{id}/questions")

@@ -3,11 +3,14 @@ package interview.guide.modules.knowledgebase.repository;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import jakarta.persistence.LockModeType;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +24,13 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBaseEnti
      * 根据文件哈希查找知识库（用于去重）
      */
     Optional<KnowledgeBaseEntity> findByFileHash(String fileHash);
+
+    /**
+     * 锁定知识库行，用于串行化同一知识库的题目生成状态迁移。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT k FROM KnowledgeBaseEntity k WHERE k.id = :id")
+    Optional<KnowledgeBaseEntity> findByIdForUpdate(@Param("id") Long id);
 
     /**
      * 检查文件哈希是否存在
@@ -103,5 +113,11 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBaseEnti
      * 按向量化状态查找知识库（按上传时间倒序）
      */
     List<KnowledgeBaseEntity> findByVectorStatusOrderByUploadedAtDesc(VectorStatus vectorStatus);
-}
 
+    @Query("SELECT k FROM KnowledgeBaseEntity k "
+        + "WHERE k.questionGenStatus = :status "
+        + "AND (k.questionGenUpdatedAt IS NULL OR k.questionGenUpdatedAt < :threshold)")
+    List<KnowledgeBaseEntity> findStaleQuestionGenerationTasks(
+        @Param("status") interview.guide.modules.knowledgebase.model.QuestionGenStatus status,
+        @Param("threshold") LocalDateTime threshold);
+}

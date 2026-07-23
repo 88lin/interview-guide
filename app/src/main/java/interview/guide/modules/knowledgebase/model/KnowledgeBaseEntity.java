@@ -72,6 +72,33 @@ public class KnowledgeBaseEntity {
 
     // 向量分块数量
     private Integer chunkCount = 0;
+
+    // 问题生成状态
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private QuestionGenStatus questionGenStatus = QuestionGenStatus.NONE;
+
+    // 问题生成错误信息（失败时记录）
+    @Column(length = 500)
+    private String questionGenError;
+
+    // 问题生成任务ID（用于幂等判断，防止旧任务覆盖新任务）
+    @Column(length = 36)
+    private String questionGenTaskId;
+
+    // 问题生成参数快照（不包含 Prompt、上下文或密钥）
+    @Column(columnDefinition = "TEXT")
+    private String questionGenConfig;
+
+    // 问题生成结果摘要
+    @Column(length = 500)
+    private String questionGenMessage;
+
+    private Integer questionGenSavedCount = 0;
+
+    private Integer questionGenSkippedCount = 0;
+
+    private LocalDateTime questionGenUpdatedAt;
     
     @PrePersist
     protected void onCreate() {
@@ -218,5 +245,68 @@ public class KnowledgeBaseEntity {
     public void setChunkCount(Integer chunkCount) {
         this.chunkCount = chunkCount;
     }
-}
 
+    public QuestionGenStatus getQuestionGenStatus() {
+        return questionGenStatus;
+    }
+
+    public void setQuestionGenStatus(QuestionGenStatus questionGenStatus) {
+        this.questionGenStatus = questionGenStatus;
+    }
+
+    public String getQuestionGenError() {
+        return questionGenError;
+    }
+
+    public void setQuestionGenError(String questionGenError) {
+        this.questionGenError = questionGenError;
+    }
+
+    public String getQuestionGenTaskId() {
+        return questionGenTaskId;
+    }
+
+    public void setQuestionGenTaskId(String questionGenTaskId) {
+        this.questionGenTaskId = questionGenTaskId;
+    }
+
+    public String getQuestionGenConfig() {
+        return questionGenConfig;
+    }
+
+    public void setQuestionGenConfig(String questionGenConfig) {
+        this.questionGenConfig = questionGenConfig;
+    }
+
+    public String getQuestionGenMessage() {
+        return questionGenMessage;
+    }
+
+    public void setQuestionGenMessage(String questionGenMessage) {
+        this.questionGenMessage = questionGenMessage;
+    }
+
+    public Integer getQuestionGenSavedCount() {
+        return questionGenSavedCount;
+    }
+
+    public void setQuestionGenSavedCount(Integer questionGenSavedCount) {
+        this.questionGenSavedCount = questionGenSavedCount;
+    }
+
+    public Integer getQuestionGenSkippedCount() {
+        return questionGenSkippedCount;
+    }
+
+    public void setQuestionGenSkippedCount(Integer questionGenSkippedCount) {
+        this.questionGenSkippedCount = questionGenSkippedCount;
+    }
+
+    public LocalDateTime getQuestionGenUpdatedAt() {
+        return questionGenUpdatedAt;
+    }
+
+    public void setQuestionGenUpdatedAt(LocalDateTime questionGenUpdatedAt) {
+        this.questionGenUpdatedAt = questionGenUpdatedAt;
+    }
+}

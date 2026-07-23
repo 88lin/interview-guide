@@ -3,6 +3,7 @@ package interview.guide.modules.knowledgebase.repository;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -71,4 +72,11 @@ public interface KnowledgeBaseQuestionRepository extends JpaRepository<Knowledge
 
     Long getCount();
   }
+
+  /**
+   * 删除某知识库下的所有题目（用于重新生成时替换）
+   */
+  @Modifying
+  @Query("DELETE FROM KnowledgeBaseQuestionEntity q WHERE q.knowledgeBase.id = :kbId")
+  int deleteByKnowledgeBaseId(@Param("kbId") Long knowledgeBaseId);
 }

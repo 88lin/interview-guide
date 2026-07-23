@@ -3,6 +3,7 @@ package interview.guide.modules.knowledgebase.service;
 import interview.guide.common.ai.LlmProviderRegistry;
 import interview.guide.common.ai.PromptSanitizer;
 import interview.guide.common.ai.StructuredOutputInvoker;
+import interview.guide.modules.knowledgebase.listener.QuestionGenStreamProducer;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionDTO;
@@ -65,6 +66,10 @@ class KnowledgeBaseQuestionServiceTest {
   private PromptSanitizer promptSanitizer;
   @Mock
   private ChatClient chatClient;
+  @Mock
+  private QuestionGenStreamProducer questionGenStreamProducer;
+  @Mock
+  private QuestionGenerationStateService questionGenerationStateService;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private KnowledgeBaseQuestionService service;
@@ -78,7 +83,9 @@ class KnowledgeBaseQuestionServiceTest {
         llmProviderRegistry,
         structuredOutputInvoker,
         promptSanitizer,
-        objectMapper
+        objectMapper,
+        questionGenStreamProducer,
+        questionGenerationStateService
     );
     // 用反射注入 @Value 字段，让 service 加载真实模板文件，避免 mock Resource 引发的 StringTemplate 渲染问题
     Resource systemResource = new ClassPathResource("prompts/knowledgebase-question-generation-system.st");

@@ -141,4 +141,51 @@ public final class AsyncTaskStreamConstants {
      * 语音面试会话ID字段
      */
     public static final String FIELD_VOICE_SESSION_ID = "voiceSessionId";
+
+    // ========== 知识库问题生成 Stream 配置 ==========
+
+    /**
+     * 知识库问题生成 Stream Key
+     */
+    public static final String KB_QUESTION_GEN_STREAM_KEY = "knowledgebase:question-gen:stream";
+
+    /**
+     * 知识库问题生成 Consumer Group 名称
+     */
+    public static final String KB_QUESTION_GEN_GROUP_NAME = "question-gen-group";
+
+    /**
+     * 知识库问题生成 Consumer 名称前缀
+     */
+    public static final String KB_QUESTION_GEN_CONSUMER_PREFIX = "question-gen-consumer-";
+
+    /**
+     * 任务ID字段（用于幂等判断）
+     */
+    public static final String FIELD_TASK_ID = "taskId";
+
+    /**
+     * 难度字段
+     */
+    public static final String FIELD_DIFFICULTY = "difficulty";
+
+    /**
+     * 题目数量字段
+     */
+    public static final String FIELD_QUESTION_COUNT = "questionCount";
+
+    /**
+     * 追问数量字段
+     */
+    public static final String FIELD_FOLLOW_UP_COUNT = "followUpCount";
+
+    /**
+     * 方向数量字段
+     */
+    public static final String FIELD_CATEGORY_LIMIT = "categoryLimit";
+
+    /**
+     * LLM Provider字段
+     */
+    public static final String FIELD_LLM_PROVIDER = "llmProvider";
 }

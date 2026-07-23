@@ -7,6 +7,7 @@ import interview.guide.common.ai.StructuredOutputInvoker;
 import interview.guide.common.constant.CommonConstants.InterviewDefaults;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
+import interview.guide.modules.knowledgebase.listener.QuestionGenStreamProducer;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseQuestionRequest;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
@@ -15,6 +16,8 @@ import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionFollowUpDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionGenerationResult;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
+import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
+import interview.guide.modules.knowledgebase.model.QuestionGenerationConfig;
 import interview.guide.modules.knowledgebase.model.UpdateKnowledgeBaseQuestionRequest;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRepository;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRepository.CategoryCount;
@@ -68,6 +71,8 @@ public class KnowledgeBaseQuestionService {
   private final StructuredOutputInvoker structuredOutputInvoker;
   private final PromptSanitizer promptSanitizer;
   private final ObjectMapper objectMapper;
+  private final QuestionGenStreamProducer questionGenStreamProducer;
+  private final QuestionGenerationStateService questionGenerationStateService;
 
   @Value("classpath:prompts/knowledgebase-question-generation-system.st")
   private Resource systemPromptResource;
@@ -191,6 +196,39 @@ public class KnowledgeBaseQuestionService {
       throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_NOT_FOUND);
     }
     questionRepository.deleteById(questionId);
+  }
+
+  /**
+   * 提交异步问题生成任务。
+   * 校验知识库存在且状态允许，更新状态为 QUEUED，然后向 Redis Stream 投递任务。
+   */
+  public QuestionGenStatusResponse submitGenerationTask(
+      Long knowledgeBaseId,
+      GenerateKnowledgeBaseQuestionsRequest request) {
+    String difficulty = normalizeDifficulty(request.difficulty());
+    int followUpCount = request.followUpCount() == null
+        ? DEFAULT_FOLLOW_UP_COUNT
+        : Math.max(0, Math.min(request.followUpCount(), 5));
+    int categoryLimit = request.categoryLimit() == null
+        ? DEFAULT_CATEGORY_LIMIT
+        : Math.max(1, Math.min(request.categoryLimit(), 5));
+    QuestionGenerationConfig config = new QuestionGenerationConfig(
+        difficulty,
+        Math.max(1, request.questionCount()),
+        followUpCount,
+        categoryLimit,
+        trimToNull(request.llmProvider())
+    );
+    QuestionGenStatusResponse response =
+        questionGenerationStateService.createTask(knowledgeBaseId, config);
+    boolean sent = questionGenStreamProducer.sendGenerateTask(
+        knowledgeBaseId, response.questionGenTaskId());
+    return sent ? response : questionGenerationStateService.getStatus(knowledgeBaseId);
+  }
+
+  @Transactional(readOnly = true)
+  public QuestionGenStatusResponse getGenerationStatus(Long knowledgeBaseId) {
+    return questionGenerationStateService.getStatus(knowledgeBaseId);
   }
 
   public KnowledgeBaseQuestionGenerationResult generateDraftQuestions(
