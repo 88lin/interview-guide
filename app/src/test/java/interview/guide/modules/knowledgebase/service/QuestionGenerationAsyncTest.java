@@ -96,10 +96,6 @@ class QuestionGenerationAsyncTest {
     questionService = new KnowledgeBaseQuestionService(
         knowledgeBaseRepository,
         questionRepository,
-        vectorService,
-        llmProviderRegistry,
-        structuredOutputInvoker,
-        promptSanitizer,
         objectMapper,
         questionGenStreamProducer,
         stateService
@@ -421,6 +417,71 @@ class QuestionGenerationAsyncTest {
       verify(questionRepository, never()).deleteByKnowledgeBaseId(any());
       verify(questionRepository, never()).saveAll(anyList());
     }
+
+    @Test
+    @DisplayName("同批重复题只保存一次并记录跳过数量")
+    @SuppressWarnings("unchecked")
+    void shouldDeduplicateGeneratedBatch() {
+      KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
+      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
+      when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of());
+      when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
+          .thenReturn(List.of());
+      when(questionRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+      stubInvokerForGeneration(new KnowledgeBaseQuestionGenerationService.QuestionListDTO(List.of(
+          new KnowledgeBaseQuestionGenerationService.QuestionDTO(
+              " ", null, "什么是依赖注入", "摘要", "参考答案",
+              List.of("要点"), "规则", List.of()),
+          new KnowledgeBaseQuestionGenerationService.QuestionDTO(
+              "Spring", null, "什么是 依赖注入", "摘要", "参考答案",
+              List.of("要点"), "规则", List.of())
+      )));
+
+      generationService.executeGeneration(
+          1L, "task-1", new QuestionGenerationConfig("mid", 2, 0, 3, null));
+
+      ArgumentCaptor<List<KnowledgeBaseQuestionEntity>> captor =
+          ArgumentCaptor.forClass(List.class);
+      verify(questionRepository).saveAll(captor.capture());
+      assertThat(captor.getValue()).hasSize(1);
+      assertThat(captor.getValue().get(0).getCategory()).isEqualTo("测试知识库");
+      assertThat(kb.getQuestionGenSkippedCount()).isEqualTo(1);
+      assertThat(kb.getQuestionGenStatus()).isEqualTo(QuestionGenStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("已有方向和题目会传入异步生成 Prompt")
+    void shouldPassExistingQuestionsToPrompt() {
+      KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
+      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
+      when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of(
+          categoryCount("JVM", 5L),
+          categoryCount("Spring", 3L)
+      ));
+      KnowledgeBaseQuestionEntity existing = new KnowledgeBaseQuestionEntity();
+      existing.setQuestion("已有的 JVM 问题");
+      when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
+          .thenReturn(List.of(existing));
+      when(questionRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+      stubInvokerForGeneration(new KnowledgeBaseQuestionGenerationService.QuestionListDTO(List.of(
+          new KnowledgeBaseQuestionGenerationService.QuestionDTO(
+              "JVM", null, "什么是内存模型", "摘要", "参考答案",
+              List.of("要点"), "规则", List.of())
+      )));
+
+      generationService.executeGeneration(
+          1L, "task-1", new QuestionGenerationConfig("mid", 1, 0, 2, null));
+
+      ArgumentCaptor<String> userPrompt = ArgumentCaptor.forClass(String.class);
+      verify(structuredOutputInvoker).invoke(
+          eq(chatClient), anyString(), userPrompt.capture(), any(),
+          any(), anyString(), anyString(), any());
+      assertThat(userPrompt.getValue()).contains("JVM（5 题）");
+      assertThat(userPrompt.getValue()).contains("Spring（3 题）");
+      assertThat(userPrompt.getValue()).contains("已有的 JVM 问题");
+    }
   }
 
   // ========== 辅助方法 ==========
@@ -454,5 +515,22 @@ class QuestionGenerationAsyncTest {
         .getDeclaredMethod("processMessage", StreamMessageId.class, Map.class);
     method.setAccessible(true);
     method.invoke(consumer, new StreamMessageId(1, 0), new HashMap<>(data));
+  }
+
+  private KnowledgeBaseQuestionRepository.CategoryCount categoryCount(
+      String category,
+      Long count
+  ) {
+    return new KnowledgeBaseQuestionRepository.CategoryCount() {
+      @Override
+      public String getCategory() {
+        return category;
+      }
+
+      @Override
+      public Long getCount() {
+        return count;
+      }
+    };
   }
 }

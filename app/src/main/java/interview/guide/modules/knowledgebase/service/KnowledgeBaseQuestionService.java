@@ -1,9 +1,5 @@
 package interview.guide.modules.knowledgebase.service;
 
-import interview.guide.common.ai.LlmProviderRegistry;
-import interview.guide.common.ai.PromptSanitizer;
-import interview.guide.common.ai.PromptSecurityConstants;
-import interview.guide.common.ai.StructuredOutputInvoker;
 import interview.guide.common.constant.CommonConstants.InterviewDefaults;
 import interview.guide.common.exception.BusinessException;
 import interview.guide.common.exception.ErrorCode;
@@ -14,7 +10,6 @@ import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionFollowUpDTO;
-import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionGenerationResult;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
 import interview.guide.modules.knowledgebase.model.QuestionGenerationConfig;
@@ -24,38 +19,20 @@ import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRep
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.prompt.PromptTemplate;
-import org.springframework.ai.converter.BeanOutputConverter;
-import org.springframework.ai.document.Document;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeBaseQuestionService {
 
-  private static final int RETRIEVAL_TOP_K = 12;
-  private static final int RETRIEVAL_QUERY_TOP_K = 4;
-  private static final int MAX_CONTEXT_CHARS = 5000;
   private static final int DEFAULT_FOLLOW_UP_COUNT = 2;
   private static final int DEFAULT_CATEGORY_LIMIT = 3;
   private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
@@ -66,36 +43,9 @@ public class KnowledgeBaseQuestionService {
 
   private final KnowledgeBaseRepository knowledgeBaseRepository;
   private final KnowledgeBaseQuestionRepository questionRepository;
-  private final KnowledgeBaseVectorService vectorService;
-  private final LlmProviderRegistry llmProviderRegistry;
-  private final StructuredOutputInvoker structuredOutputInvoker;
-  private final PromptSanitizer promptSanitizer;
   private final ObjectMapper objectMapper;
   private final QuestionGenStreamProducer questionGenStreamProducer;
   private final QuestionGenerationStateService questionGenerationStateService;
-
-  @Value("classpath:prompts/knowledgebase-question-generation-system.st")
-  private Resource systemPromptResource;
-
-  @Value("classpath:prompts/knowledgebase-question-generation-user.st")
-  private Resource userPromptResource;
-
-  private final BeanOutputConverter<QuestionListDTO> outputConverter =
-      new BeanOutputConverter<>(QuestionListDTO.class);
-
-  // 包级可见以便单测构造；不暴露到 service 外部
-  record QuestionListDTO(List<QuestionDTO> questions) {
-  }
-
-  record QuestionDTO(String category,
-                             String type,
-                             String question,
-                             String topicSummary,
-                             String referenceAnswer,
-                             List<String> keyPoints,
-                             String scoringRubric,
-                             List<KnowledgeBaseQuestionFollowUpDTO> followUps) {
-  }
 
   @Transactional(readOnly = true)
   public List<KnowledgeBaseQuestionDTO> listQuestions(Long knowledgeBaseId,
@@ -231,127 +181,6 @@ public class KnowledgeBaseQuestionService {
     return questionGenerationStateService.getStatus(knowledgeBaseId);
   }
 
-  public KnowledgeBaseQuestionGenerationResult generateDraftQuestions(
-      Long knowledgeBaseId,
-      GenerateKnowledgeBaseQuestionsRequest request) {
-    KnowledgeBaseEntity kb = getKnowledgeBase(knowledgeBaseId);
-    String difficulty = normalizeDifficulty(request.difficulty());
-    int followUpCount = request.followUpCount() == null
-        ? DEFAULT_FOLLOW_UP_COUNT
-        : Math.max(0, Math.min(request.followUpCount(), 5));
-    int categoryLimit = request.categoryLimit() == null
-        ? DEFAULT_CATEGORY_LIMIT
-        : Math.max(1, Math.min(request.categoryLimit(), 5));
-    String context = buildGenerationContext(kb);
-    ChatClient chatClient = llmProviderRegistry.getPlainChatClient(request.llmProvider());
-
-    try {
-      String systemPrompt = loadTemplate(systemPromptResource).render()
-          + "\n\n"
-          + outputConverter.getFormat();
-      String userPrompt = loadTemplate(userPromptResource)
-          .render(Map.of(
-              "knowledgeBaseName", kb.getName(),
-              "difficulty", difficulty,
-              "questionCount", Math.max(1, request.questionCount()),
-              "followUpCount", followUpCount,
-              "categoryLimit", categoryLimit,
-              "existingCategories", buildExistingCategorySection(knowledgeBaseId),
-              "existingQuestions", promptSanitizer.sanitize(
-                  buildExistingQuestionSection(knowledgeBaseId, difficulty)),
-              "context", PromptSecurityConstants.DATA_BOUNDARY_INSTRUCTION + "\n"
-                  + promptSanitizer.wrapWithDelimiters("knowledge-base",
-                      promptSanitizer.sanitize(context))
-          ));
-
-      QuestionListDTO generated = structuredOutputInvoker.invoke(
-          chatClient,
-          systemPrompt,
-          userPrompt,
-          outputConverter,
-          ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
-          "知识库题库生成失败：",
-          "知识库题库生成",
-          log
-      );
-      return saveGeneratedQuestions(kb, difficulty, context, generated);
-    } catch (BusinessException e) {
-      throw e;
-    } catch (Exception e) {
-      log.error("知识库题库生成失败: kbId={}, error={}", knowledgeBaseId, e.getMessage(), e);
-      throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
-          "知识库题库生成失败：" + e.getMessage());
-    }
-  }
-
-  private KnowledgeBaseQuestionGenerationResult saveGeneratedQuestions(KnowledgeBaseEntity kb,
-                                                                       String difficulty,
-                                                                       String sourceContext,
-                                                                       QuestionListDTO generated) {
-    if (generated == null || generated.questions() == null || generated.questions().isEmpty()) {
-      throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED, "知识库题库生成结果为空");
-    }
-
-    // 已入库题干（同知识库 + 同难度）的归一化集合
-    Set<String> existingKeys = questionRepository
-        .findByKnowledgeBase_IdAndDifficulty(kb.getId(), difficulty).stream()
-        .map(q -> normalizeQuestionKey(q.getQuestion()))
-        .collect(Collectors.toCollection(HashSet::new));
-
-    List<KnowledgeBaseQuestionEntity> entities = new ArrayList<>();
-    Set<String> batchKeys = new LinkedHashSet<>();
-    int skippedDuplicates = 0;
-    for (QuestionDTO dto : generated.questions()) {
-      if (dto == null || dto.question() == null || dto.question().isBlank()) {
-        continue;
-      }
-      String rawQuestion = dto.question().trim();
-      String key = normalizeQuestionKey(rawQuestion);
-      if (existingKeys.contains(key) || !batchKeys.add(key)) {
-        skippedDuplicates += 1;
-        continue;
-      }
-      String category = normalizeCategory(dto.category(), kb.getName());
-      KnowledgeBaseQuestionEntity entity = new KnowledgeBaseQuestionEntity();
-      entity.setKnowledgeBase(kb);
-      entity.setSkillId(KnowledgeBaseQuestionEntity.DEFAULT_SKILL_ID);
-      entity.setDifficulty(difficulty);
-      entity.setType(trimToNull(dto.type()));
-      entity.setCategory(category);
-      entity.setQuestion(rawQuestion);
-      entity.setTopicSummary(trimToNull(dto.topicSummary()));
-      entity.setReferenceAnswer(trimToNull(dto.referenceAnswer()));
-      entity.setKeyPointsJson(writeStringList(dto.keyPoints()));
-      entity.setScoringRubric(trimToNull(dto.scoringRubric()));
-      entity.setFollowUpsJson(writeFollowUps(dto.followUps()));
-      entity.setSourceContext(sourceContext);
-      entity.setKbContentHash(kb.getFileHash());
-      entity.setStatus(KnowledgeBaseQuestionStatus.DRAFT);
-      entities.add(entity);
-    }
-    if (entities.isEmpty()) {
-      if (skippedDuplicates > 0) {
-        String message = String.format("本次生成结果均与已有题重复（共 %d 道），已全部跳过", skippedDuplicates);
-        log.info("知识库题库生成全部重复：{} [kbId={}, difficulty={}]", message, kb.getId(), difficulty);
-        return new KnowledgeBaseQuestionGenerationResult(List.of(), skippedDuplicates, message);
-      }
-      throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
-          "知识库题库生成结果无有效题干");
-    }
-    if (skippedDuplicates > 0) {
-      log.info("知识库题库生成去重：生成 {} 道，跳过 {} 道重复题，最终保存 {} 道 [kbId={}, difficulty={}]",
-          generated.questions().size(), skippedDuplicates, entities.size(),
-          kb.getId(), difficulty);
-    }
-    List<KnowledgeBaseQuestionDTO> saved = questionRepository.saveAll(entities).stream()
-        .map(this::toDTO)
-        .toList();
-    String message = skippedDuplicates > 0
-        ? String.format("已新增 %d 道题，跳过 %d 道重复题", saved.size(), skippedDuplicates)
-        : String.format("已新增 %d 道题", saved.size());
-    return new KnowledgeBaseQuestionGenerationResult(saved, skippedDuplicates, message);
-  }
-
   private void applyCreateRequest(KnowledgeBaseQuestionEntity question,
                                   CreateKnowledgeBaseQuestionRequest request) {
     question.setSkillId(KnowledgeBaseQuestionEntity.DEFAULT_SKILL_ID);
@@ -392,82 +221,6 @@ public class KnowledgeBaseQuestionService {
         question.getCreatedAt(),
         question.getUpdatedAt()
     );
-  }
-
-  private String buildGenerationContext(KnowledgeBaseEntity kb) {
-    List<Document> docs = new ArrayList<>();
-    Set<String> seenTexts = new LinkedHashSet<>();
-    for (String query : buildGenerationQueries(kb.getName())) {
-      List<Document> hits = vectorService.similaritySearch(
-          query, List.of(kb.getId()), RETRIEVAL_QUERY_TOP_K, 0);
-      log.info("知识库题目生成检索: kbId={}, query={}, topK={}, minScore=0, hits={}",
-          kb.getId(), query, RETRIEVAL_QUERY_TOP_K, hits.size());
-      for (Document doc : hits) {
-        String text = doc.getText();
-        if (text == null || text.isBlank() || !seenTexts.add(text.trim())) {
-          continue;
-        }
-        docs.add(doc);
-        if (docs.size() >= RETRIEVAL_TOP_K) {
-          break;
-        }
-      }
-      if (docs.size() >= RETRIEVAL_TOP_K) {
-        break;
-      }
-    }
-    if (docs.isEmpty()) {
-      throw new BusinessException(ErrorCode.KNOWLEDGE_BASE_QUERY_FAILED,
-          "知识库未检索到可用于生成题目的内容");
-    }
-    log.info("知识库题目生成上下文: kbId={}, chunks={}", kb.getId(), docs.size());
-    String context = docs.stream()
-        .map(Document::getText)
-        .collect(Collectors.joining("\n\n---\n\n"));
-    return context.length() <= MAX_CONTEXT_CHARS
-        ? context
-        : context.substring(0, MAX_CONTEXT_CHARS) + "\n...(知识库片段过长，已截断)";
-  }
-
-  private List<String> buildGenerationQueries(String knowledgeBaseName) {
-    // 不在 query 里拼接知识库名：检索已经按 kbId 过滤了范围，
-    // 拼上书名/标题反而会让向量命中偏向前言、版本记录、目录等元内容页，
-    // 挤占真正的技术内容。保留入参签名不动，避免改动面扩大。
-    return List.of(
-        "核心概念 定义 背景 原理",
-        "关键流程 步骤 方法 工作机制",
-        "规则约束 条件 边界 例外 限制",
-        "典型案例 常见问题 应用场景 最佳实践"
-    );
-  }
-
-  private String buildExistingCategorySection(Long knowledgeBaseId) {
-    List<CategoryCount> categories = questionRepository.findCategoryCounts(knowledgeBaseId);
-    if (categories.isEmpty()) {
-      return "暂无已有方向";
-    }
-    return categories.stream()
-        .limit(10)
-        .map(c -> "- " + c.getCategory() + "（" + c.getCount() + " 题）")
-        .collect(Collectors.joining("\n"));
-  }
-
-  private String buildExistingQuestionSection(Long knowledgeBaseId, String difficulty) {
-    List<String> questions = questionRepository
-        .findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(knowledgeBaseId, difficulty)
-        .stream()
-        .map(KnowledgeBaseQuestionEntity::getQuestion)
-        .filter(question -> question != null && !question.isBlank())
-        .map(question -> "- " + question.trim())
-        .toList();
-    return questions.isEmpty() ? "暂无已有题目" : String.join("\n", questions);
-  }
-
-  private PromptTemplate loadTemplate(Resource resource) throws IOException {
-    try (var input = resource.getInputStream()) {
-      String content = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-      return new PromptTemplate(content);
-    }
   }
 
   private KnowledgeBaseEntity getKnowledgeBase(Long knowledgeBaseId) {
@@ -575,23 +328,4 @@ public class KnowledgeBaseQuestionService {
     return value.trim();
   }
 
-  /**
-   * 题干归一化：用于跨批次去重比对。
-   * 规则：Unicode NFC 规范化 → 转小写 → 去标点和空白。
-   * 不做语义相似度去重，避免误伤表达相近但考察点不同的题目。
-   */
-  private String normalizeQuestionKey(String question) {
-    if (question == null) {
-      return "";
-    }
-    String normalized = Normalizer.normalize(question, Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
-    StringBuilder sb = new StringBuilder(normalized.length());
-    for (int i = 0; i < normalized.length(); i += 1) {
-      char ch = normalized.charAt(i);
-      if (Character.isLetterOrDigit(ch)) {
-        sb.append(ch);
-      }
-    }
-    return sb.toString();
-  }
 }

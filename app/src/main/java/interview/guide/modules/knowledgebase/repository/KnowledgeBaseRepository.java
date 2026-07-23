@@ -1,6 +1,7 @@
 package interview.guide.modules.knowledgebase.repository;
 
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
+import interview.guide.modules.knowledgebase.model.QuestionGenStatus;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -118,6 +119,6 @@ public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBaseEnti
         + "WHERE k.questionGenStatus = :status "
         + "AND (k.questionGenUpdatedAt IS NULL OR k.questionGenUpdatedAt < :threshold)")
     List<KnowledgeBaseEntity> findStaleQuestionGenerationTasks(
-        @Param("status") interview.guide.modules.knowledgebase.model.QuestionGenStatus status,
+        @Param("status") QuestionGenStatus status,
         @Param("threshold") LocalDateTime threshold);
 }

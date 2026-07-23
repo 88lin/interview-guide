@@ -159,12 +159,13 @@ public class KnowledgeBaseQuestionGenerationService {
           + outputConverter.getFormat();
       String userPrompt = loadTemplate(userPromptResource)
           .render(Map.of(
-              "knowledgeBaseName", kb.getName(),
+              "knowledgeBaseName", promptSanitizer.sanitize(kb.getName()),
               "difficulty", difficulty,
               "questionCount", questionCount,
               "followUpCount", followUpCount,
               "categoryLimit", categoryLimit,
-              "existingCategories", buildExistingCategorySection(kb.getId()),
+              "existingCategories", promptSanitizer.sanitize(
+                  buildExistingCategorySection(kb.getId())),
               "existingQuestions", promptSanitizer.sanitize(
                   buildExistingQuestionSection(kb.getId(), difficulty)),
               "context", PromptSecurityConstants.DATA_BOUNDARY_INSTRUCTION + "\n"
