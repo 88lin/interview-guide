@@ -1,11 +1,14 @@
 package interview.guide.modules.knowledgebase.service;
 
+import interview.guide.common.exception.BusinessException;
+import interview.guide.common.exception.ErrorCode;
 import interview.guide.modules.interview.model.InterviewQuestionDTO;
 import interview.guide.modules.interview.model.InterviewSessionDTO;
 import interview.guide.modules.interview.model.InterviewSessionDTO.SessionStatus;
 import interview.guide.modules.interview.service.InterviewSessionService;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseInterviewCapacityResponse;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionFollowUpDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
@@ -26,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -161,26 +165,98 @@ class KnowledgeBaseInterviewServiceTest {
   }
 
   @Test
-  @DisplayName("followUpCount 大于追问池时返回全部追问而不报错")
+  @DisplayName("追问池不足严格数量时使用专用错误码拒绝创建面试")
   @SuppressWarnings("unchecked")
-  void shouldReturnAllFollowUpsWhenCountExceedsPool() throws Exception {
+  void shouldRejectWhenFollowUpPoolIsSmallerThanRequestedCount() throws Exception {
     KnowledgeBaseInterviewService service = newService();
     KnowledgeBaseQuestionEntity question = questionWithFollowUp();
     when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(new KnowledgeBaseEntity()));
     when(questionRepository.findByKnowledgeBase_IdAndDifficultyAndStatusOrderByUpdatedAtDesc(
         1L, "mid", KnowledgeBaseQuestionStatus.ACTIVE)).thenReturn(List.of(question));
-    when(interviewSessionService.createSessionFromQuestions(
-        any(), eq(""), eq(KnowledgeBaseQuestionEntity.DEFAULT_SKILL_ID), eq("mid"), eq(1L), eq(null)))
-        .thenReturn(new InterviewSessionDTO("s", "", 2, 0, List.of(), SessionStatus.CREATED, 1L, null));
 
-    service.createSession(
-        new CreateKnowledgeBaseInterviewRequest(1L, null, "mid", 1, 3, ""));
+    assertThatThrownBy(() -> service.createSession(
+        new CreateKnowledgeBaseInterviewRequest(1L, null, "mid", 1, 3, "")))
+        .isInstanceOfSatisfying(BusinessException.class, exception -> {
+          assertThat(exception.getCode()).isEqualTo(ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT.getCode());
+          assertThat(exception.getMessage()).contains("每题至少 3 个追问");
+        });
 
-    ArgumentCaptor<List<InterviewQuestionDTO>> captor = ArgumentCaptor.forClass(List.class);
-    verify(interviewSessionService).createSessionFromQuestions(
-        captor.capture(), eq(""), eq(KnowledgeBaseQuestionEntity.DEFAULT_SKILL_ID), eq("mid"), eq(1L),
-        eq(null));
-    assertThat(captor.getValue()).hasSize(2);
+    verify(interviewSessionService, never()).createSessionFromQuestions(
+        any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  @DisplayName("容量查询按非空追问题干统计严格可用题数")
+  void shouldCalculateStrictCapacityByUsableFollowUpCount() throws Exception {
+    KnowledgeBaseInterviewService service = newService();
+    KnowledgeBaseQuestionEntity noFollowUp = questionWithFollowUps("Redis", List.of());
+    KnowledgeBaseQuestionEntity oneFollowUp = questionWithFollowUps("Redis", List.of(
+        new KnowledgeBaseQuestionFollowUpDTO("追问1"),
+        new KnowledgeBaseQuestionFollowUpDTO("   ")
+    ));
+    KnowledgeBaseQuestionEntity threeFollowUps = questionWithFollowUps("MySQL", List.of(
+        new KnowledgeBaseQuestionFollowUpDTO("追问1"),
+        new KnowledgeBaseQuestionFollowUpDTO("追问2"),
+        new KnowledgeBaseQuestionFollowUpDTO("追问3")
+    ));
+    when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(new KnowledgeBaseEntity()));
+    when(questionRepository.findByKnowledgeBase_IdAndDifficultyAndStatusOrderByUpdatedAtDesc(
+        1L, "mid", KnowledgeBaseQuestionStatus.ACTIVE))
+        .thenReturn(List.of(noFollowUp, oneFollowUp, threeFollowUps));
+
+    KnowledgeBaseInterviewCapacityResponse response =
+        service.getCapacity(1L, null, "mid", 2);
+
+    assertThat(response.followUpOptions())
+        .extracting(
+            KnowledgeBaseInterviewCapacityResponse.FollowUpOption::followUpCount,
+            KnowledgeBaseInterviewCapacityResponse.FollowUpOption::availableQuestionCount,
+            KnowledgeBaseInterviewCapacityResponse.FollowUpOption::selectable
+        )
+        .contains(
+            org.assertj.core.groups.Tuple.tuple(0, 3, true),
+            org.assertj.core.groups.Tuple.tuple(1, 2, true),
+            org.assertj.core.groups.Tuple.tuple(2, 1, false),
+            org.assertj.core.groups.Tuple.tuple(3, 1, false)
+        );
+    assertThat(response.categories())
+        .extracting(
+            KnowledgeBaseInterviewCapacityResponse.CategoryOption::category,
+            KnowledgeBaseInterviewCapacityResponse.CategoryOption::availableQuestionCount
+        )
+        .containsExactly(
+            org.assertj.core.groups.Tuple.tuple("Redis", 2),
+            org.assertj.core.groups.Tuple.tuple("MySQL", 1)
+        );
+  }
+
+  @Test
+  @DisplayName("容量查询按方向过滤追问选项但保留全部方向统计")
+  void shouldFilterCapacityByCategoryAndKeepCategoryOptions() throws Exception {
+    KnowledgeBaseInterviewService service = newService();
+    KnowledgeBaseQuestionEntity redis = questionWithFollowUps("Redis", List.of(
+        new KnowledgeBaseQuestionFollowUpDTO("追问1"),
+        new KnowledgeBaseQuestionFollowUpDTO("追问2")
+    ));
+    KnowledgeBaseQuestionEntity mysql = questionWithFollowUps("MySQL", List.of(
+        new KnowledgeBaseQuestionFollowUpDTO("追问1")
+    ));
+    when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(new KnowledgeBaseEntity()));
+    when(questionRepository.findByKnowledgeBase_IdAndDifficultyAndStatusOrderByUpdatedAtDesc(
+        1L, "mid", KnowledgeBaseQuestionStatus.ACTIVE)).thenReturn(List.of(redis, mysql));
+
+    KnowledgeBaseInterviewCapacityResponse response =
+        service.getCapacity(1L, " Redis ", "mid", 1);
+
+    assertThat(response.category()).isEqualTo("Redis");
+    assertThat(response.followUpOptions())
+        .filteredOn(option -> option.followUpCount() == 2)
+        .singleElement()
+        .satisfies(option -> {
+          assertThat(option.availableQuestionCount()).isEqualTo(1);
+          assertThat(option.selectable()).isTrue();
+        });
+    assertThat(response.categories()).hasSize(2);
   }
 
   private KnowledgeBaseInterviewService newService() {
@@ -209,12 +285,20 @@ class KnowledgeBaseInterviewServiceTest {
   }
 
   private KnowledgeBaseQuestionEntity questionWithThreeFollowUps() throws Exception {
-    KnowledgeBaseQuestionEntity entity = questionWithFollowUp();
-    entity.setFollowUpsJson(objectMapper.writeValueAsString(List.of(
+    return questionWithFollowUps("Redis", List.of(
         new KnowledgeBaseQuestionFollowUpDTO("追问1", "答1", List.of(), "规则1"),
         new KnowledgeBaseQuestionFollowUpDTO("追问2", "答2", List.of(), "规则2"),
         new KnowledgeBaseQuestionFollowUpDTO("追问3", "答3", List.of(), "规则3")
-    )));
+    ));
+  }
+
+  private KnowledgeBaseQuestionEntity questionWithFollowUps(
+      String category,
+      List<KnowledgeBaseQuestionFollowUpDTO> followUps
+  ) throws Exception {
+    KnowledgeBaseQuestionEntity entity = questionWithFollowUp();
+    entity.setCategory(category);
+    entity.setFollowUpsJson(objectMapper.writeValueAsString(followUps));
     return entity;
   }
 }

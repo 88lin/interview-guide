@@ -9,6 +9,7 @@ import interview.guide.modules.knowledgebase.listener.QuestionGenStreamProducer;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionFollowUpDTO;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatus;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
 import interview.guide.modules.knowledgebase.model.QuestionGenerationConfig;
@@ -32,6 +33,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.redisson.api.stream.StreamMessageId;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -347,6 +349,49 @@ class QuestionGenerationAsyncTest {
           ArgumentCaptor.forClass(List.class);
       verify(questionRepository).saveAll(captor.capture());
       assertThat(captor.getValue()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("生成追问超过目标时截断，少于目标时保留有效草稿")
+    @SuppressWarnings("unchecked")
+    void shouldNormalizeGeneratedFollowUpsToTargetWithoutDroppingShortDrafts() throws Exception {
+      KnowledgeBaseEntity kb = buildKb(1L, QuestionGenStatus.PROCESSING, "task-1");
+      when(knowledgeBaseRepository.findById(1L)).thenReturn(Optional.of(kb));
+      when(knowledgeBaseRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(kb));
+      when(questionRepository.findCategoryCounts(1L)).thenReturn(List.of());
+      when(questionRepository.findTop20ByKnowledgeBase_IdAndDifficultyOrderByUpdatedAtDesc(1L, "mid"))
+          .thenReturn(List.of());
+      when(questionRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+      stubInvokerForGeneration(new KnowledgeBaseQuestionGenerationService.QuestionListDTO(List.of(
+          new KnowledgeBaseQuestionGenerationService.QuestionDTO(
+              "Redis", null, "追问过多的题目", "摘要", "参考答案",
+              List.of("要点"), "规则", List.of(
+                  new KnowledgeBaseQuestionFollowUpDTO("追问1"),
+                  new KnowledgeBaseQuestionFollowUpDTO("追问2"),
+                  new KnowledgeBaseQuestionFollowUpDTO("追问3")
+              )),
+          new KnowledgeBaseQuestionGenerationService.QuestionDTO(
+              "JVM", null, "追问不足的题目", "摘要", "参考答案",
+              List.of("要点"), "规则", List.of(
+                  new KnowledgeBaseQuestionFollowUpDTO("唯一追问")
+              ))
+      )));
+
+      generationService.executeGeneration(
+          1L, "task-1", new QuestionGenerationConfig("mid", 2, 2, 3, null));
+
+      ArgumentCaptor<List<KnowledgeBaseQuestionEntity>> captor =
+          ArgumentCaptor.forClass(List.class);
+      verify(questionRepository).saveAll(captor.capture());
+      List<KnowledgeBaseQuestionEntity> saved = captor.getValue();
+      TypeReference<List<KnowledgeBaseQuestionFollowUpDTO>> type = new TypeReference<>() {
+      };
+      assertThat(objectMapper.readValue(saved.get(0).getFollowUpsJson(), type)).hasSize(2);
+      assertThat(objectMapper.readValue(saved.get(1).getFollowUpsJson(), type)).hasSize(1);
+      assertThat(saved)
+          .allSatisfy(question ->
+              assertThat(question.getStatus()).isEqualTo(
+                  interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus.DRAFT));
     }
 
     @Test

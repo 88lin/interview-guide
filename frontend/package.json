@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:interview-history": "node --test src/pages/interviewHistoryStats.test.ts",
-    "test:question-generation": "node --test src/pages/questionGenerationStatus.test.ts"
+    "test:question-generation": "node --test src/pages/questionGenerationStatus.test.ts",
+    "test:interview-capacity": "node --test src/components/knowledgebaseInterview/interviewCapacity.test.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",
