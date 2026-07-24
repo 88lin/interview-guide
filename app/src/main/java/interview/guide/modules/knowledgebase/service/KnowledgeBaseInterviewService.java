@@ -80,7 +80,8 @@ public class KnowledgeBaseInterviewService {
 
     List<QuestionSource> selected = new ArrayList<>(candidates);
     Collections.shuffle(selected);
-    List<InterviewQuestionDTO> questions = buildQuestions(selected.subList(0, mainCount), followUpCount);
+    List<InterviewQuestionDTO> questions =
+        buildQuestions(selected.subList(0, mainCount), followUpCount);
 
     log.info("创建知识库面试: kbId={}, category={}, difficulty={}, mainQuestions={}, totalQuestions={}",
         request.knowledgeBaseId(), category, difficulty, mainCount, questions.size());
@@ -199,10 +200,10 @@ public class KnowledgeBaseInterviewService {
    */
   private List<KnowledgeBaseQuestionFollowUpDTO> pickFollowUps(
       List<KnowledgeBaseQuestionFollowUpDTO> pool, int count) {
-    if (pool == null || pool.isEmpty() || count <= 0) {
+    if (count <= 0) {
       return List.of();
     }
-    if (pool.size() < count) {
+    if (pool == null || pool.size() < count) {
       throw new BusinessException(
           ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT,
           "追问池在组装面试时发生变化，无法严格抽取 " + count + " 个追问"

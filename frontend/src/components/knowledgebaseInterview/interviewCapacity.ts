@@ -19,8 +19,14 @@ export function getStrictCapacityMessage(
   if (selected.selectable) {
     return `当前条件可用 ${selected.availableQuestionCount} 道主问题。`;
   }
-  const maximumStrictCount = options
-    .filter(option => option.availableQuestionCount >= mainQuestionCount)
+  const selectableOptions = options
+    .filter(option => option.availableQuestionCount >= mainQuestionCount);
+  if (selectableOptions.length === 0) {
+    return `当前仅有 ${selected.availableQuestionCount} 道题包含至少 ${followUpCount} 个追问，`
+      + `无法抽取 ${mainQuestionCount} 道主问题。`
+      + '当前题量下没有足够的已启用主问题，请减少主问题数或补充题库。';
+  }
+  const maximumStrictCount = selectableOptions
     .reduce((maximum, option) => Math.max(maximum, option.followUpCount), 0);
   return `当前仅有 ${selected.availableQuestionCount} 道题包含至少 ${followUpCount} 个追问，`
     + `无法抽取 ${mainQuestionCount} 道主问题。`

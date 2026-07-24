@@ -83,7 +83,7 @@ export default function StartKnowledgeBaseInterviewModal({
       })
       .catch(err => {
         if (!cancelled) {
-          setLoadError(err instanceof Error ? err.message : '加载方向失败');
+          setLoadError(err instanceof Error ? err.message : '加载面试容量失败');
         }
       })
       .finally(() => {
