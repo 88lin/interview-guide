@@ -22,7 +22,9 @@ export function shouldRefreshGeneratedQuestions(
   nextStatus: QuestionGenStatus,
   sameTask: boolean
 ): boolean {
-  return sameTask && previousStatus !== 'COMPLETED' && nextStatus === 'COMPLETED';
+  return sameTask
+    && isQuestionGenerationActive(previousStatus)
+    && nextStatus === 'COMPLETED';
 }
 
 export function getQuestionGenerationNotice(

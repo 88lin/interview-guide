@@ -9,6 +9,7 @@ import {formatDate, formatDateOnly} from '../utils/date';
 import {getScoreProgressColor} from '../utils/score';
 import {
   calculateInterviewStats,
+  getKnowledgeBaseInterviewCategoryLabel,
   isCompletedStatus,
   isEvaluateCompleted,
 } from './interviewHistoryStats.ts';
@@ -52,8 +53,8 @@ const COMPLETION_OPTIONS: { value: CompletionFilter; label: string }[] = [
   { value: 'completed', label: '已完成' },
 ];
 
-const UNCATEGORIZED_LABEL = '未指定方向';
-const UNCATEGORIZED_VALUE = '__uncategorized__';
+const ALL_DIRECTIONS_LABEL = '全部方向';
+const ALL_DIRECTIONS_VALUE = '__all_directions__';
 
 interface UnifiedInterviewItem {
   id: string;
@@ -389,9 +390,9 @@ export default function InterviewHistoryPage({
     if (typeFilter !== 'all' && item.type !== typeFilter) return false;
     if (searchTerm && !item.title.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (isKnowledgeBaseView) {
-      if (categoryFilter === UNCATEGORIZED_VALUE && item.interviewCategory) return false;
+      if (categoryFilter === ALL_DIRECTIONS_VALUE && item.interviewCategory) return false;
       if (categoryFilter !== 'all'
-          && categoryFilter !== UNCATEGORIZED_VALUE
+          && categoryFilter !== ALL_DIRECTIONS_VALUE
           && item.interviewCategory !== categoryFilter) return false;
       if (timeFilter !== 'all') {
         const days = timeFilter === '7d' ? 7 : timeFilter === '30d' ? 30 : 90;
@@ -399,7 +400,7 @@ export default function InterviewHistoryPage({
         if (new Date(item.createdAt).getTime() < cutoff) return false;
       }
       if (completionFilter !== 'all') {
-        const completed = isCompletedStatus(item.status);
+        const completed = isEvaluateCompleted(item);
         if (completionFilter === 'completed' && !completed) return false;
         if (completionFilter === 'inProgress' && completed) return false;
       }
@@ -539,12 +540,12 @@ export default function InterviewHistoryPage({
             aria-label="按面试方向筛选"
             className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-primary-500 transition-colors cursor-pointer"
           >
-            <option value="all">全部方向</option>
+            <option value="all">全部记录</option>
             {categoryOptions.values.map(category => (
               <option key={category} value={category}>{category}</option>
             ))}
             {categoryOptions.hasUncategorized && (
-              <option value={UNCATEGORIZED_VALUE}>{UNCATEGORIZED_LABEL}</option>
+              <option value={ALL_DIRECTIONS_VALUE}>{ALL_DIRECTIONS_LABEL}</option>
             )}
           </select>
           <select
@@ -692,7 +693,7 @@ export default function InterviewHistoryPage({
                                 title="面试方向"
                               >
                                 <Tag className="w-3 h-3" />
-                                {item.interviewCategory || UNCATEGORIZED_LABEL}
+                                {getKnowledgeBaseInterviewCategoryLabel(item.interviewCategory)}
                               </span>
                             )}
                           </div>
