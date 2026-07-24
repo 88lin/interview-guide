@@ -306,13 +306,13 @@ public class FileStorageService {
      * 处理单个字符，保留安全字符，其他替换为下划线
      */
     private char sanitizeChar(char ch) {
-        return switch (ch) {
-            case char c when (c >= 'a' && c <= 'z') -> ch;
-            case char c when (c >= 'A' && c <= 'Z') -> ch;
-            case char c when (c >= '0' && c <= '9') -> ch;
-            case '.', '_', '-' -> ch;
-            default -> '_';
-        };
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+            return ch;
+        }
+        if (ch == '.' || ch == '_' || ch == '-') {
+            return ch;
+        }
+        return '_';
     }
 
     /**

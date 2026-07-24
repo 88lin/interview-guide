@@ -91,20 +91,20 @@ dependencies {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_25
-    targetCompatibility = JavaVersion.VERSION_25
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
 }
 
 // 全局UTF-8编码配置
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 25
-    options.compilerArgs += ['--enable-preview']
 }
 
 tasks.named('test') {
     useJUnitPlatform()
-    jvmArgs '--enable-preview', '--enable-native-access=ALL-UNNAMED'
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
 
 // 将仓库根目录 .env 注入 bootRun，便于本地加载 AI_BAILIAN_API_KEY 等变量（Gradle 进程默认不读 .env）
@@ -116,7 +116,6 @@ tasks.named('bootRun') {
             '-Dconsole.encoding=UTF-8',
             '-Dstdout.encoding=UTF-8',
             '-Dstderr.encoding=UTF-8',
-            '--enable-preview',
             '--enable-native-access=ALL-UNNAMED'
     ]
 
