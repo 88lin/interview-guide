@@ -6,6 +6,7 @@ import interview.guide.modules.interview.model.InterviewSessionDTO;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseQuestionRequest;
 import interview.guide.modules.knowledgebase.model.GenerateKnowledgeBaseQuestionsRequest;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseInterviewCapacityResponse;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
 import interview.guide.modules.knowledgebase.model.QuestionGenStatusResponse;
@@ -15,6 +16,8 @@ import interview.guide.modules.knowledgebase.repository.KnowledgeBaseQuestionRep
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseInterviewService;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseQuestionService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,10 +27,12 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.validation.annotation.Validated;
 
 import java.util.List;
 
 @RestController
+@Validated
 @RequiredArgsConstructor
 public class KnowledgeBaseInterviewController {
 
@@ -94,5 +99,18 @@ public class KnowledgeBaseInterviewController {
   public Result<InterviewSessionDTO> createInterviewSession(
       @Valid @RequestBody CreateKnowledgeBaseInterviewRequest request) {
     return Result.success(interviewService.createSession(request));
+  }
+
+  @GetMapping("/api/knowledgebase/{id}/interview-capacity")
+  public Result<KnowledgeBaseInterviewCapacityResponse> getInterviewCapacity(
+      @PathVariable Long id,
+      @RequestParam(value = "category", required = false) String category,
+      @RequestParam(value = "difficulty", defaultValue = "mid") String difficulty,
+      @RequestParam(value = "mainQuestionCount", defaultValue = "5")
+      @Min(value = 1, message = "主问题数量最少1题")
+      @Max(value = 20, message = "主问题数量最多20题")
+      int mainQuestionCount) {
+    return Result.success(
+        interviewService.getCapacity(id, category, difficulty, mainQuestionCount));
   }
 }

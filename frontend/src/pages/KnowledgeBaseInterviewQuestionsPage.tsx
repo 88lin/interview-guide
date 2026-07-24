@@ -654,6 +654,7 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
               <QuestionCard
                 key={question.id}
                 question={question}
+                targetFollowUpCount={generationStatus?.questionGenConfig?.followUpCount}
                 selected={selectedIds.has(question.id)}
                 onSelect={toggleSelectOne}
                 onEdit={openEditForm}

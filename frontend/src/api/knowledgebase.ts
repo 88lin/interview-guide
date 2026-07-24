@@ -153,6 +153,32 @@ export interface CreateKnowledgeBaseInterviewRequest {
   llmProvider?: string;
 }
 
+export interface InterviewCategoryCapacity {
+  category: string;
+  availableQuestionCount: number;
+}
+
+export interface InterviewFollowUpCapacity {
+  followUpCount: number;
+  availableQuestionCount: number;
+  selectable: boolean;
+}
+
+export interface KnowledgeBaseInterviewCapacityResponse {
+  knowledgeBaseId: number;
+  category: string | null;
+  difficulty: string;
+  mainQuestionCount: number;
+  categories: InterviewCategoryCapacity[];
+  followUpOptions: InterviewFollowUpCapacity[];
+}
+
+export interface GetKnowledgeBaseInterviewCapacityParams {
+  category?: string;
+  difficulty: string;
+  mainQuestionCount: number;
+}
+
 export const knowledgeBaseApi = {
   /**
    * 上传知识库文件
@@ -327,6 +353,22 @@ export const knowledgeBaseApi = {
 
   async createInterviewSession(req: CreateKnowledgeBaseInterviewRequest): Promise<InterviewSession> {
     return request.post<InterviewSession>('/api/knowledgebase-interviews/sessions', req);
+  },
+
+  async getInterviewCapacity(
+    id: number,
+    params: GetKnowledgeBaseInterviewCapacityParams
+  ): Promise<KnowledgeBaseInterviewCapacityResponse> {
+    const searchParams = new URLSearchParams({
+      difficulty: params.difficulty,
+      mainQuestionCount: String(params.mainQuestionCount),
+    });
+    if (params.category?.trim()) {
+      searchParams.set('category', params.category.trim());
+    }
+    return request.get<KnowledgeBaseInterviewCapacityResponse>(
+      `/api/knowledgebase/${id}/interview-capacity?${searchParams.toString()}`
+    );
   },
 
   /**

@@ -59,8 +59,10 @@ class KnowledgeBaseInterviewServiceTest {
         new CreateKnowledgeBaseInterviewRequest(1L, null, "mid", 1, 0, "");
 
     assertThatThrownBy(() -> service.createSession(request))
-        .isInstanceOf(interview.guide.common.exception.BusinessException.class)
-        .hasMessageContaining("当前启用题目不足");
+        .isInstanceOfSatisfying(BusinessException.class, exception -> {
+          assertThat(exception.getCode()).isEqualTo(ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT.getCode());
+          assertThat(exception.getMessage()).contains("需要 1 道主问题", "只有 0 道");
+        });
   }
 
   @Test

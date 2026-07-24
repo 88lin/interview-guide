@@ -127,7 +127,8 @@ public class KnowledgeBaseQuestionGenerationService {
     }
 
     // 4. 构建实体列表（不在事务中）
-    GenerationBatch batch = buildEntities(kb, normalizedDifficulty, context, generated);
+    GenerationBatch batch =
+        buildEntities(kb, normalizedDifficulty, context, normalizedFollowUp, generated);
     if (batch.questions().isEmpty()) {
       throw new BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED, "知识库题库生成结果无有效题干");
     }
@@ -196,6 +197,7 @@ public class KnowledgeBaseQuestionGenerationService {
       KnowledgeBaseEntity kb,
       String difficulty,
       String sourceContext,
+      int followUpCount,
       QuestionListDTO generated
   ) {
     List<KnowledgeBaseQuestionEntity> entities = new ArrayList<>();
@@ -224,7 +226,7 @@ public class KnowledgeBaseQuestionGenerationService {
       entity.setReferenceAnswer(trimToNull(dto.referenceAnswer()));
       entity.setKeyPointsJson(writeStringList(dto.keyPoints()));
       entity.setScoringRubric(trimToNull(dto.scoringRubric()));
-      entity.setFollowUpsJson(writeFollowUps(dto.followUps()));
+      entity.setFollowUpsJson(writeFollowUps(dto.followUps(), followUpCount));
       entity.setSourceContext(sourceContext);
       entity.setKbContentHash(kb.getFileHash());
       entity.setStatus(KnowledgeBaseQuestionStatus.DRAFT);
@@ -351,7 +353,10 @@ public class KnowledgeBaseQuestionGenerationService {
     }
   }
 
-  private String writeFollowUps(List<KnowledgeBaseQuestionFollowUpDTO> values) {
+  private String writeFollowUps(
+      List<KnowledgeBaseQuestionFollowUpDTO> values,
+      int followUpCount
+  ) {
     try {
       List<KnowledgeBaseQuestionFollowUpDTO> sanitized = values == null ? List.of() : values.stream()
           .filter(value -> value != null && value.question() != null && !value.question().isBlank())
@@ -364,6 +369,7 @@ public class KnowledgeBaseQuestionGenerationService {
                   .toList(),
               trimToNull(value.scoringRubric())
           ))
+          .limit(followUpCount)
           .toList();
       return objectMapper.writeValueAsString(sanitized);
     } catch (JacksonException e) {

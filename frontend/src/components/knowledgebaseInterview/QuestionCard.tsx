@@ -14,10 +14,12 @@ import {
   getDifficultyLabel,
   getStatusLabel,
 } from '../../constants/knowledgebaseInterview';
+import { getFollowUpQualityWarning } from './interviewCapacity';
 
 interface QuestionCardProps {
   question: KnowledgeBaseQuestion;
   selected?: boolean;
+  targetFollowUpCount?: number | null;
   onSelect?: (id: number) => void;
   onEdit: (question: KnowledgeBaseQuestion) => void;
   onUpdateStatus: (questionId: number, status: KnowledgeBaseQuestionStatus) => void;
@@ -27,12 +29,18 @@ interface QuestionCardProps {
 export default function QuestionCard({
   question,
   selected = false,
+  targetFollowUpCount,
   onSelect,
   onEdit,
   onUpdateStatus,
   onDelete,
 }: QuestionCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const usableFollowUpCount = question.followUps
+    .filter(followUp => followUp.question?.trim())
+    .length;
+  const followUpQualityWarning =
+    getFollowUpQualityWarning(usableFollowUpCount, targetFollowUpCount);
   const hasDetail = Boolean(
     question.referenceAnswer
       || question.keyPoints.length > 0
@@ -62,7 +70,10 @@ export default function QuestionCard({
             <Badge>{getStatusLabel(question.status)}</Badge>
             {question.category && <Badge>{question.category}</Badge>}
             <Badge>{getDifficultyLabel(question.difficulty)}</Badge>
-            <Badge>{`${question.followUps.length} 个追问`}</Badge>
+            <Badge>{`${usableFollowUpCount} 个追问`}</Badge>
+            {followUpQualityWarning && (
+              <Badge tone="warning">{followUpQualityWarning}</Badge>
+            )}
           </div>
           <button
             type="button"
@@ -173,9 +184,18 @@ export default function QuestionCard({
   );
 }
 
-function Badge({ children }: { children: string }) {
+function Badge({
+  children,
+  tone = 'default',
+}: {
+  children: string;
+  tone?: 'default' | 'warning';
+}) {
+  const colorClass = tone === 'warning'
+    ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300';
   return (
-    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-xs text-slate-500 dark:text-slate-300">
+    <span className={`px-2 py-0.5 rounded text-xs ${colorClass}`}>
       {children}
     </span>
   );

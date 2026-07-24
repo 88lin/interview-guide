@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, Loader2, Play, X } from 'lucide-react';
-import type { KnowledgeBaseItem, KnowledgeBaseQuestion } from '../../api/knowledgebase';
+import type {
+  KnowledgeBaseInterviewCapacityResponse,
+  KnowledgeBaseItem,
+} from '../../api/knowledgebase';
 import { knowledgeBaseApi } from '../../api/knowledgebase';
 import {
   DEFAULT_DIFFICULTY,
@@ -10,6 +13,10 @@ import {
   INPUT_CLASS,
   MAIN_QUESTION_COUNT_OPTIONS,
 } from '../../constants/knowledgebaseInterview';
+import {
+  getSelectedCapacity,
+  getStrictCapacityMessage,
+} from './interviewCapacity';
 
 export interface StartInterviewConfig {
   category: string;  // 空字符串表示覆盖全部方向
@@ -41,17 +48,14 @@ export default function StartKnowledgeBaseInterviewModal({
   const [difficulty, setDifficulty] = useState(defaultDifficulty);
   const [mainQuestionCount, setMainQuestionCount] = useState(5);
   const [followUpCount, setFollowUpCount] = useState(1);
-  // 保留原始已启用题目列表，用于本地按 category/difficulty/followUps 计算真实可用数，
-  // 不能只存聚合后的方向计数——那样会丢失难度和追问数过滤
-  const [activeQuestions, setActiveQuestions] = useState<KnowledgeBaseQuestion[]>([]);
-  const [categories, setCategories] = useState<Array<{ category: string; count: number }>>([]);
-  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [capacity, setCapacity] =
+    useState<KnowledgeBaseInterviewCapacityResponse | null>(null);
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     if (!open || !knowledgeBase) {
-      setActiveQuestions([]);
-      setCategories([]);
+      setCapacity(null);
       setLoadError('');
       return;
     }
@@ -59,28 +63,23 @@ export default function StartKnowledgeBaseInterviewModal({
     setDifficulty(defaultDifficulty);
     setMainQuestionCount(5);
     setFollowUpCount(1);
+  }, [open, knowledgeBase, defaultDifficulty]);
+
+  useEffect(() => {
+    if (!open || !knowledgeBase) return;
     let cancelled = false;
-    setLoadingCategories(true);
+    setLoadingCapacity(true);
+    setCapacity(null);
     setLoadError('');
-    // 只取该知识库的已启用题目；方向列表与可用题数都基于这份列表本地聚合，
-    // 避免每次 category/difficulty/followUpCount 变化都额外请求后端
     knowledgeBaseApi
-      .listQuestions(knowledgeBase.id, { status: 'ACTIVE' })
-      .then(list => {
+      .getInterviewCapacity(knowledgeBase.id, {
+        category: category || undefined,
+        difficulty,
+        mainQuestionCount,
+      })
+      .then(result => {
         if (cancelled) return;
-        setActiveQuestions(list);
-        // 直接基于已启用题目本地聚合方向，避免额外调用 distinct 接口
-        const counter = new Map<string, number>();
-        list.forEach(q => {
-          if (q.category) {
-            counter.set(q.category, (counter.get(q.category) || 0) + 1);
-          }
-        });
-        setCategories(
-          Array.from(counter.entries())
-            .map(([cat, count]) => ({ category: cat, count }))
-            .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category))
-        );
+        setCapacity(result);
       })
       .catch(err => {
         if (!cancelled) {
@@ -88,26 +87,20 @@ export default function StartKnowledgeBaseInterviewModal({
         }
       })
       .finally(() => {
-        if (!cancelled) setLoadingCategories(false);
+        if (!cancelled) setLoadingCapacity(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, knowledgeBase, defaultDifficulty]);
+  }, [open, knowledgeBase, category, difficulty, mainQuestionCount]);
 
-  // 可用主问题数：与后端实际筛选条件对齐——
-  //   category 为空时跨全部方向；category/difficulty 必须匹配；
-  //   followUpCount > 0 时至少要求有 1 个追问，否则该题不能入选
-  const availableCount = useMemo(() => {
-    return activeQuestions.filter(q => {
-      if (category && q.category !== category) return false;
-      if (q.difficulty !== difficulty) return false;
-      if (followUpCount > 0 && q.followUps.length === 0) return false;
-      return true;
-    }).length;
-  }, [activeQuestions, category, difficulty, followUpCount]);
-
-  const canStart = availableCount >= mainQuestionCount && mainQuestionCount > 0;
+  const followUpOptions = capacity?.followUpOptions ?? [];
+  const selectedCapacity = getSelectedCapacity(followUpOptions, followUpCount);
+  const availableCount = selectedCapacity?.availableQuestionCount ?? 0;
+  const canStart = selectedCapacity?.selectable === true && !loadingCapacity;
+  const categoryOptions = capacity?.categories ?? [];
+  const selectedCategoryMissing = category
+    && !categoryOptions.some(option => option.category === category);
 
   return (
     <AnimatePresence>
@@ -155,12 +148,15 @@ export default function StartKnowledgeBaseInterviewModal({
                     value={category}
                     onChange={event => setCategory(event.target.value)}
                     className={INPUT_CLASS}
-                    disabled={loadingCategories}
+                    disabled={loadingCapacity}
                   >
                     <option value="">全部方向</option>
-                    {categories.map(item => (
+                    {selectedCategoryMissing && (
+                      <option value={category}>{category}（当前难度 0 题）</option>
+                    )}
+                    {categoryOptions.map(item => (
                       <option key={item.category} value={item.category}>
-                        {item.category}（{item.count} 题）
+                        {item.category}（{item.availableQuestionCount} 题）
                       </option>
                     ))}
                   </select>
@@ -198,15 +194,27 @@ export default function StartKnowledgeBaseInterviewModal({
                       onChange={event => setFollowUpCount(parseInt(event.target.value, 10))}
                       className={INPUT_CLASS}
                     >
-                      {FOLLOW_UP_COUNT_OPTIONS.map(count => (
-                        <option key={count} value={count}>{count} 个</option>
-                      ))}
+                      {FOLLOW_UP_COUNT_OPTIONS.map(count => {
+                        const optionCapacity = getSelectedCapacity(followUpOptions, count);
+                        const label = optionCapacity
+                          ? `${count} 个（${optionCapacity.availableQuestionCount} 道题可用）`
+                          : `${count} 个`;
+                        return (
+                          <option
+                            key={count}
+                            value={count}
+                            disabled={!optionCapacity?.selectable}
+                          >
+                            {label}
+                          </option>
+                        );
+                      })}
                     </select>
                   </label>
                 </div>
 
                 <div className="rounded-lg bg-slate-50 dark:bg-slate-900 px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                  {loadingCategories ? (
+                  {loadingCapacity ? (
                     <span className="inline-flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" /> 正在统计可用题目…
                     </span>
@@ -219,7 +227,11 @@ export default function StartKnowledgeBaseInterviewModal({
                       道主问题
                       {!canStart && (
                         <span className="block mt-1 text-xs text-red-500">
-                          需至少 {mainQuestionCount} 道，请启用更多题目或减少题量
+                          {getStrictCapacityMessage(
+                            followUpOptions,
+                            followUpCount,
+                            mainQuestionCount
+                          )}
                         </span>
                       )}
                     </>
@@ -247,7 +259,7 @@ export default function StartKnowledgeBaseInterviewModal({
                 <motion.button
                   type="button"
                   onClick={() => onStart({ category, difficulty, mainQuestionCount, followUpCount })}
-                  disabled={!canStart || starting || loadingCategories}
+                  disabled={!canStart || starting || loadingCapacity}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   className="px-5 py-2.5 inline-flex items-center gap-2 text-white rounded-xl font-semibold shadow-lg bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"

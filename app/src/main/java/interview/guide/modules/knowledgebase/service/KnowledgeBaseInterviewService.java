@@ -7,6 +7,9 @@ import interview.guide.modules.interview.model.InterviewQuestionDTO;
 import interview.guide.modules.interview.model.InterviewSessionDTO;
 import interview.guide.modules.interview.service.InterviewSessionService;
 import interview.guide.modules.knowledgebase.model.CreateKnowledgeBaseInterviewRequest;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseInterviewCapacityResponse;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseInterviewCapacityResponse.CategoryOption;
+import interview.guide.modules.knowledgebase.model.KnowledgeBaseInterviewCapacityResponse.FollowUpOption;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionEntity;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionFollowUpDTO;
 import interview.guide.modules.knowledgebase.model.KnowledgeBaseQuestionStatus;
@@ -21,13 +24,19 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeBaseInterviewService {
+
+  private static final int MAX_FOLLOW_UP_COUNT = 5;
 
   private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
   };
@@ -57,23 +66,15 @@ public class KnowledgeBaseInterviewService {
     List<KnowledgeBaseQuestionEntity> raw = selectActiveQuestions(
         request.knowledgeBaseId(), category, difficulty);
 
-    List<QuestionSource> candidates = raw.stream()
-        .map(question -> new QuestionSource(
-            question,
-            readStringList(question.getKeyPointsJson()),
-            readFollowUps(question.getFollowUpsJson())
-        ))
-        // 仅当 followUpCount > 0 时才要求至少有 1 个追问可用，
-        // pickFollowUps 会在池容量不足时返回全部追问。
-        .filter(source -> followUpCount == 0 || !source.followUps().isEmpty())
+    List<QuestionSource> candidates = toQuestionSources(raw).stream()
+        .filter(source -> source.followUps().size() >= followUpCount)
         .toList();
 
     if (candidates.size() < mainCount) {
       throw new BusinessException(
-          ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
-          "当前启用题目不足：需要 " + mainCount + " 道主问题，满足条件的题目只有 "
-              + candidates.size() + " 道"
-              + (category != null ? "（方向：" + category + "）" : "（全部方向）")
+          ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT,
+          buildInsufficientMessage(
+              mainCount, candidates.size(), category, difficulty, followUpCount)
       );
     }
 
@@ -92,6 +93,48 @@ public class KnowledgeBaseInterviewService {
         difficulty,
         request.knowledgeBaseId(),
         category
+    );
+  }
+
+  public KnowledgeBaseInterviewCapacityResponse getCapacity(
+      Long knowledgeBaseId,
+      String category,
+      String difficulty,
+      int mainQuestionCount
+  ) {
+    knowledgeBaseRepository.findById(knowledgeBaseId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND));
+
+    String normalizedCategory = trimToNull(category);
+    String normalizedDifficulty = normalizeDifficulty(difficulty);
+    List<QuestionSource> allSources = toQuestionSources(selectActiveQuestions(
+        knowledgeBaseId, null, normalizedDifficulty));
+    List<QuestionSource> scopedSources = allSources.stream()
+        .filter(source -> normalizedCategory == null
+            || normalizedCategory.equals(source.question().getCategory()))
+        .toList();
+
+    List<CategoryOption> categories = calculateCategoryOptions(allSources);
+    List<FollowUpOption> followUpOptions = IntStream.rangeClosed(0, MAX_FOLLOW_UP_COUNT)
+        .mapToObj(count -> {
+          int availableCount = (int) scopedSources.stream()
+              .filter(source -> source.followUps().size() >= count)
+              .count();
+          return new FollowUpOption(
+              count,
+              availableCount,
+              mainQuestionCount > 0 && availableCount >= mainQuestionCount
+          );
+        })
+        .toList();
+
+    return new KnowledgeBaseInterviewCapacityResponse(
+        knowledgeBaseId,
+        normalizedCategory,
+        normalizedDifficulty,
+        mainQuestionCount,
+        categories,
+        followUpOptions
     );
   }
 
@@ -151,7 +194,7 @@ public class KnowledgeBaseInterviewService {
   }
 
   /**
-   * 在追问池里随机抽取 count 个，池容量不足时返回全部。
+   * 在追问池里随机抽取严格的 count 个，池容量不足时拒绝继续组装。
    * 使用 Fisher-Yates 局部洗牌，避免改动原列表顺序。
    */
   private List<KnowledgeBaseQuestionFollowUpDTO> pickFollowUps(
@@ -159,7 +202,13 @@ public class KnowledgeBaseInterviewService {
     if (pool == null || pool.isEmpty() || count <= 0) {
       return List.of();
     }
-    int n = Math.min(count, pool.size());
+    if (pool.size() < count) {
+      throw new BusinessException(
+          ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT,
+          "追问池在组装面试时发生变化，无法严格抽取 " + count + " 个追问"
+      );
+    }
+    int n = count;
     if (n == pool.size()) {
       return new ArrayList<>(pool);
     }
@@ -174,6 +223,45 @@ public class KnowledgeBaseInterviewService {
     return copy.subList(0, n);
   }
 
+  private List<QuestionSource> toQuestionSources(List<KnowledgeBaseQuestionEntity> questions) {
+    return questions.stream()
+        .map(question -> new QuestionSource(
+            question,
+            readStringList(question.getKeyPointsJson()),
+            readUsableFollowUps(question.getFollowUpsJson())
+        ))
+        .toList();
+  }
+
+  private List<CategoryOption> calculateCategoryOptions(List<QuestionSource> sources) {
+    Map<String, Integer> counts = new LinkedHashMap<>();
+    for (QuestionSource source : sources) {
+      String category = trimToNull(source.question().getCategory());
+      if (category != null) {
+        counts.merge(category, 1, Integer::sum);
+      }
+    }
+    return counts.entrySet().stream()
+        .map(entry -> new CategoryOption(entry.getKey(), entry.getValue()))
+        .sorted(Comparator.comparingInt(CategoryOption::availableQuestionCount).reversed()
+            .thenComparing(CategoryOption::category))
+        .toList();
+  }
+
+  private String buildInsufficientMessage(
+      int requiredCount,
+      int availableCount,
+      String category,
+      String difficulty,
+      int followUpCount
+  ) {
+    String direction = category == null ? "全部方向" : category;
+    return "需要 " + requiredCount + " 道主问题，但只有 " + availableCount
+        + " 道同时满足：方向=" + direction
+        + "、难度=" + difficulty
+        + "、每题至少 " + followUpCount + " 个追问";
+  }
+
   private List<String> readStringList(String value) {
     if (value == null || value.isBlank()) {
       return List.of();
@@ -186,12 +274,27 @@ public class KnowledgeBaseInterviewService {
     }
   }
 
-  private List<KnowledgeBaseQuestionFollowUpDTO> readFollowUps(String value) {
+  private List<KnowledgeBaseQuestionFollowUpDTO> readUsableFollowUps(String value) {
     if (value == null || value.isBlank()) {
       return List.of();
     }
     try {
-      return objectMapper.readValue(value, FOLLOW_UP_LIST_TYPE);
+      List<KnowledgeBaseQuestionFollowUpDTO> followUps =
+          objectMapper.readValue(value, FOLLOW_UP_LIST_TYPE);
+      if (followUps == null) {
+        return List.of();
+      }
+      return followUps.stream()
+          .filter(followUp -> followUp != null
+              && followUp.question() != null
+              && !followUp.question().isBlank())
+          .map(followUp -> new KnowledgeBaseQuestionFollowUpDTO(
+              followUp.question().trim(),
+              followUp.referenceAnswer(),
+              followUp.keyPoints(),
+              followUp.scoringRubric()
+          ))
+          .toList();
     } catch (JacksonException e) {
       log.warn("解析追问失败: {}", e.getMessage());
       return List.of();
