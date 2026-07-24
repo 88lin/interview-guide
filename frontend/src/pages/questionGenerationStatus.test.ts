@@ -13,10 +13,12 @@ test('QUEUED 和 PROCESSING 都属于活动生成状态', () => {
   assert.equal(isQuestionGenerationActive('FAILED'), false);
 });
 
-test('只有同一任务首次进入 COMPLETED 时刷新题目', () => {
+test('只有正在跟踪的活动任务进入 COMPLETED 时刷新题目', () => {
   assert.equal(shouldRefreshGeneratedQuestions('PROCESSING', 'COMPLETED', true), true);
+  assert.equal(shouldRefreshGeneratedQuestions('QUEUED', 'COMPLETED', true), true);
   assert.equal(shouldRefreshGeneratedQuestions('COMPLETED', 'COMPLETED', true), false);
   assert.equal(shouldRefreshGeneratedQuestions('PROCESSING', 'COMPLETED', false), false);
+  assert.equal(shouldRefreshGeneratedQuestions(null, 'COMPLETED', true), false);
 });
 
 test('状态提示不暴露后端异常细节', () => {
