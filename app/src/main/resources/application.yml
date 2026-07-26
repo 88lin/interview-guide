@@ -280,6 +280,8 @@ app:
     tts-timeout-seconds: ${APP_VOICE_TTS_TIMEOUT_SECONDS:8}
     # 单会话并发 TTS 上限，控制首段语音速度和服务连接压力
     max-concurrent-tts-per-session: ${APP_VOICE_MAX_CONCURRENT_TTS_PER_SESSION:3}
+    # 是否在应用启动时为开场白预热音频缓存；默认关闭，避免启动时产生云端 TTS 调用
+    opening-audio-warmup-enabled: ${APP_VOICE_OPENING_AUDIO_WARMUP_ENABLED:false}
 
     # Rate limiting
     rate-limit:

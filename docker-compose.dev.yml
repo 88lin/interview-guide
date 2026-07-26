@@ -49,7 +49,8 @@ services:
     volumes:
       - rustfs_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "timeout 3 sh -c 'cat < /dev/null > /dev/tcp/localhost/9000' || exit 1"]
+      # RustFS 镜像的 sh 不支持 /dev/tcp，改用镜像内置 nc 做 TCP 探测
+      test: ["CMD", "/usr/bin/nc", "-z", "localhost", "9000"]
       interval: 5s
       timeout: 3s
       retries: 5

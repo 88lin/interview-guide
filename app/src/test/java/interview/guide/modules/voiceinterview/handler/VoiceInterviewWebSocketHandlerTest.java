@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -53,7 +54,7 @@ class VoiceInterviewWebSocketHandlerTest {
   void shouldNotWarmupOpeningAudioByDefault() throws InterruptedException {
     VoiceInterviewProperties properties = new VoiceInterviewProperties();
     CountDownLatch ttsCalled = new CountDownLatch(1);
-    when(ttsService.synthesize(anyString())).thenAnswer(invocation -> {
+    lenient().when(ttsService.synthesize(anyString())).thenAnswer(invocation -> {
       ttsCalled.countDown();
       return new byte[0];
     });
