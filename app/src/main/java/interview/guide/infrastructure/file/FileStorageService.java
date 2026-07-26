@@ -306,8 +306,10 @@ public class FileStorageService {
      * 处理单个字符，保留安全字符，其他替换为下划线
      */
     private char sanitizeChar(char ch) {
-        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-                || (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-') {
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+            return ch;
+        }
+        if (ch == '.' || ch == '_' || ch == '-') {
             return ch;
         }
         return '_';

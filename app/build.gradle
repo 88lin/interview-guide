@@ -1,6 +1,6 @@
 /*
  * AI Interview Platform - Backend Application
- * Spring Boot 4.1 + Java 21 + Spring AI 2.0 + PostgreSQL + pgvector + RustFS + Redis
+ * Spring Boot 4.1 + Java 25 + Spring AI 2.0 + PostgreSQL + pgvector + RustFS + Redis
  */
 
 plugins {
@@ -94,17 +94,19 @@ dependencies {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
 // 全局UTF-8编码配置
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = 25
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
 }
 
 // 将仓库根目录 .env 注入 bootRun，便于本地加载 AI_BAILIAN_API_KEY 等变量（Gradle 进程默认不读 .env）
@@ -115,7 +117,8 @@ tasks.named('bootRun') {
             '-Dfile.encoding=UTF-8',
             '-Dconsole.encoding=UTF-8',
             '-Dstdout.encoding=UTF-8',
-            '-Dstderr.encoding=UTF-8'
+            '-Dstderr.encoding=UTF-8',
+            '--enable-native-access=ALL-UNNAMED'
     ]
 
     // 加载 .env 文件

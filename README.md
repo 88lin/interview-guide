@@ -2,7 +2,7 @@
 
 **智能 AI 面试官平台** - 基于大语言模型的简历分析、模拟面试和 RAG 知识库系统
 
-[![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)](https://openjdk.org/)
+[![Java](https://img.shields.io/badge/Java-25-orange?logo=openjdk)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1-green?logo=springboot)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/React-18.3-blue?logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -37,7 +37,7 @@ InterviewGuide 是一个集成了简历分析、模拟面试（文字 + 语音�
 | 技术                  | 版本  | 说明                          |
 | --------------------- | ----- | ----------------------------- |
 | Spring Boot           | 4.1.0 | 应用框架                      |
-| Java                  | 21    | 开发语言（虚拟线程）          |
+| Java                  | 25    | 开发语言（虚拟线程）          |
 | Spring AI             | 2.0.0 | AI 集成框架、OpenAI 兼容模型接入 |
 | Spring AI Agent Utils | 0.10.0 | Skill 资源加载、Advisor 能力扩展 |
 | PostgreSQL + pgvector | 14+   | 关系数据库 + 向量存储（Compose 默认 PG16） |
@@ -49,7 +49,7 @@ InterviewGuide 是一个集成了简历分析、模拟面试（文字 + 语音�
 | DashScope SDK         | 2.22.7 | 语音识别/合成（Qwen3 ASR/TTS）|
 | AWS S3 SDK            | 2.29.51 | S3 兼容对象存储（MinIO/RustFS）|
 | WebSocket             | -     | 语音面试实时双向通信          |
-| Gradle                | 8.14  | 构建工具                      |
+| Gradle                | 9.6.1 | 构建工具                      |
 
 技术选型常见问题解答：
 
@@ -276,7 +276,7 @@ interview-guide/
 
 | 依赖          | 版本 | 必需 | 说明                                     |
 | ------------- | ---- | ---- | ---------------------------------------- |
-| JDK           | 21+  | 是   | 开发语言                                 |
+| JDK           | 25   | 是   | 开发语言                                 |
 | Node.js       | 18+  | 是   | 前端构建                                 |
 | pnpm          | 10+  | 推荐 | 前端包管理器（项目 packageManager 指定 10.26）|
 | Docker        | -    | 推荐 | 一键启动依赖服务（PostgreSQL/Redis/RustFS）|

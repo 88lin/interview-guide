@@ -142,7 +142,7 @@ public class RateLimitAspect {
         if (obj instanceof String s) {
             try {
                 return Long.parseLong(s);
-            } catch (NumberFormatException e) {
+            } catch (NumberFormatException _) {
                 log.warn("无法将字符串转换为Long: {}", obj);
                 return null;
             }

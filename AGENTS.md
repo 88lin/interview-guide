@@ -1,12 +1,12 @@
 # AI Interview Platform Agent Rules
 
-Spring Boot 4.1.0 + Java 21 + Spring AI 2.0.0 + React 面试平台。
+Spring Boot 4.1.0 + Java 25 + Spring AI 2.0.0 + React 面试平台。
 
 本文件是跨工具 Agent 入口，只放长期有效、代码里不容易直接推断、猜错会影响结果的规则。更细的目录规则放在 `.claude/rules/`，需要时再读取。
 
 ## Tech Stack
 
-- Backend: Spring Boot 4.1.0 / Java 21 / Gradle / Spring AI 2.0.0
+- Backend: Spring Boot 4.1.0 / Java 25 / Gradle / Spring AI 2.0.0
 - Database: PostgreSQL + pgvector，向量维度 1024，距离类型 COSINE
 - Cache & async: Redis / Redisson / Redis Stream
 - Storage & parsing: RustFS/S3 / Apache Tika
