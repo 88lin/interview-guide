@@ -13,6 +13,7 @@ import {
   isCompletedStatus,
   isEvaluateCompleted,
 } from './interviewHistoryStats.ts';
+import {getVoiceEvaluationPresentation} from './voiceEvaluationStatus.ts';
 import {skillApi, type SkillDTO} from '../api/skill';
 import {getTemplateName} from '../utils/voiceInterview';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
@@ -65,6 +66,7 @@ interface UnifiedInterviewItem {
   status: string;
   evaluateStatus?: string;
   evaluateError?: string;
+  evaluateStatusUpdatedAt?: string;
   overallScore: number | null;
   totalQuestions?: number;
   actualDuration?: number;
@@ -87,8 +89,22 @@ function isEvaluateFailed(item: UnifiedInterviewItem): boolean {
   return item.evaluateStatus === 'FAILED';
 }
 
+function getItemEvaluationPresentation(item: UnifiedInterviewItem) {
+  return getVoiceEvaluationPresentation({
+    status: item.evaluateStatus,
+    statusUpdatedAt: item.evaluateStatusUpdatedAt,
+  });
+}
+
+function isVoiceEvaluationRetryable(item: UnifiedInterviewItem): boolean {
+  return item.type === 'voice' && getItemEvaluationPresentation(item).retryable;
+}
+
 function StatusIcon({ item }: { item: UnifiedInterviewItem }) {
   if (isEvaluateFailed(item)) return <AlertCircle className="w-4 h-4 text-red-500 dark:text-red-400"/>;
+  if (isVoiceEvaluationRetryable(item)) {
+    return <AlertCircle className="w-4 h-4 text-amber-500 dark:text-amber-400"/>;
+  }
   if (isEvaluating(item)) return <RefreshCw className="w-4 h-4 text-blue-500 dark:text-blue-400 animate-spin"/>;
   if (isEvaluateCompleted(item)) return <CheckCircle className="w-4 h-4 text-green-500 dark:text-green-400"/>;
   if (item.status === 'IN_PROGRESS') return <PlayCircle className="w-4 h-4 text-blue-500 dark:text-blue-400"/>;
@@ -97,6 +113,9 @@ function StatusIcon({ item }: { item: UnifiedInterviewItem }) {
 
 function getStatusText(item: UnifiedInterviewItem): string {
   if (isEvaluateFailed(item)) return '评估失败';
+  if (item.type === 'voice' && item.evaluateStatus) {
+    return getItemEvaluationPresentation(item).label;
+  }
   if (isEvaluating(item)) return item.evaluateStatus === 'PROCESSING' ? '评估中' : '等待评估';
   if (isEvaluateCompleted(item)) return '已完成';
   if (item.status === 'IN_PROGRESS') return '进行中';
@@ -185,7 +204,9 @@ function itemsEqual(a: UnifiedInterviewItem[], b: UnifiedInterviewItem[]): boole
   for (let i = 0; i < a.length; i++) {
     const ai = a[i], bi = b[i];
     if (ai.id !== bi.id || ai.status !== bi.status ||
-        ai.evaluateStatus !== bi.evaluateStatus || ai.overallScore !== bi.overallScore) return false;
+        ai.evaluateStatus !== bi.evaluateStatus
+        || ai.evaluateStatusUpdatedAt !== bi.evaluateStatusUpdatedAt
+        || ai.overallScore !== bi.overallScore) return false;
   }
   return true;
 }
@@ -210,6 +231,7 @@ export default function InterviewHistoryPage({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [deleteItem, setDeleteItem] = useState<UnifiedInterviewItem | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [retryingVoiceSessionId, setRetryingVoiceSessionId] = useState<number | null>(null);
   const pollingRef = useRef<number | null>(null);
   const skillsRef = useRef<SkillDTO[]>([]);
   const skillsLoadedRef = useRef(false);
@@ -296,6 +318,7 @@ export default function InterviewHistoryPage({
         status: session.status,
         evaluateStatus: session.evaluateStatus,
         evaluateError: session.evaluateError,
+        evaluateStatusUpdatedAt: session.updatedAt,
         overallScore: null,
         actualDuration: session.actualDuration,
         createdAt: session.createdAt,
@@ -382,6 +405,24 @@ export default function InterviewHistoryPage({
       alert('导出失败，请重试');
     } finally {
       setExporting(null);
+    }
+  };
+
+  const handleRetryVoiceEvaluation = async (
+    item: UnifiedInterviewItem,
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+    if (!item.voiceSessionId) return;
+
+    setRetryingVoiceSessionId(item.voiceSessionId);
+    try {
+      await voiceInterviewApi.generateEvaluation(item.voiceSessionId);
+      await loadAll(true);
+    } catch {
+      alert('重新生成评估失败，请稍后再试');
+    } finally {
+      setRetryingVoiceSessionId(null);
     }
   };
 
@@ -720,10 +761,12 @@ export default function InterviewHistoryPage({
                           </div>
                           <span className="font-bold text-slate-800 dark:text-white">{item.overallScore}</span>
                         </div>
+                      ) : isVoiceEvaluationRetryable(item) ? (
+                        <span className="text-amber-600 dark:text-amber-400 text-sm">可重新生成</span>
                       ) : isEvaluating(item) ? (
                         <span className="text-blue-500 dark:text-blue-400 text-sm">生成中...</span>
                       ) : isEvaluateFailed(item) ? (
-                        <span className="text-red-500 dark:text-red-400 text-sm" title={item.evaluateError}>失败</span>
+                        <span className="text-red-500 dark:text-red-400 text-sm">失败</span>
                       ) : (
                         <span className="text-slate-400 dark:text-slate-500">-</span>
                       )}
@@ -794,6 +837,20 @@ export default function InterviewHistoryPage({
                             title="重新面试"
                           >
                             <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+                        {isVoiceEvaluationRetryable(item) && item.voiceSessionId && (
+                          <button
+                            onClick={(e) => handleRetryVoiceEvaluation(item, e)}
+                            disabled={retryingVoiceSessionId === item.voiceSessionId}
+                            className="p-2 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-colors disabled:opacity-50"
+                            title="重新生成评估"
+                          >
+                            {retryingVoiceSessionId === item.voiceSessionId ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-4 h-4" />
+                            )}
                           </button>
                         )}
                         <button

@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -70,7 +71,7 @@ class VoiceInterviewEvaluationRecoveryTest {
             voiceEvaluateStreamProducer,
             llmProviderRegistry
         );
-        when(redissonClient.<VoiceInterviewSessionEntity>getBucket(anyString()))
+        lenient().when(redissonClient.<VoiceInterviewSessionEntity>getBucket(anyString()))
             .thenReturn(sessionBucket);
     }
 
@@ -129,6 +130,21 @@ class VoiceInterviewEvaluationRecoveryTest {
 
         assertThat(cleaned).isEqualTo(1);
         verify(voiceEvaluateStreamProducer).sendEvaluateTask("3");
+    }
+
+    @Test
+    @DisplayName("评估状态更新后应清除会话缓存")
+    void shouldInvalidateSessionCacheAfterEvaluationStatusChanges() {
+        VoiceInterviewSessionEntity session = VoiceInterviewSessionEntity.builder()
+            .id(4L)
+            .evaluateStatus(AsyncTaskStatus.PENDING)
+            .build();
+        when(sessionRepository.findById(4L)).thenReturn(Optional.of(session));
+
+        voiceInterviewService.updateEvaluateStatus(4L, AsyncTaskStatus.COMPLETED, null);
+
+        assertThat(session.getEvaluateStatus()).isEqualTo(AsyncTaskStatus.COMPLETED);
+        verify(sessionBucket).delete();
     }
 
     private VoiceInterviewSessionEntity inProgressSession(Long sessionId) {

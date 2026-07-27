@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import { EvaluationStatusResponse, VoiceEvaluationDetail, voiceInterviewApi } from '../api/voiceInterview';
 import InterviewDetailPanel from '../components/InterviewDetailPanel';
 import type { InterviewDetail } from '../api/history';
+import { getVoiceEvaluationPresentation } from './voiceEvaluationStatus.ts';
 
 export default function VoiceInterviewEvaluationPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -11,6 +12,7 @@ export default function VoiceInterviewEvaluationPage() {
   const [evaluation, setEvaluation] = useState<VoiceEvaluationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [evaluateStatus, setEvaluateStatus] = useState<string | null>(null);
+  const [evaluateStatusUpdatedAt, setEvaluateStatusUpdatedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -47,12 +49,15 @@ export default function VoiceInterviewEvaluationPage() {
   const handleStatusResponse = (response: EvaluationStatusResponse) => {
     const status = response.evaluateStatus;
     setEvaluateStatus(status);
+    setEvaluateStatusUpdatedAt(
+      current => response.evaluateStatusUpdatedAt ?? current ?? new Date().toISOString(),
+    );
 
     if (status === 'COMPLETED' && response.evaluation) {
       setEvaluation(response.evaluation);
       setLoading(false);
     } else if (status === 'FAILED') {
-      setError(response.evaluateError || '评估生成失败');
+      setError('评估任务未能完成，请重新生成');
       setLoading(false);
     } else {
       startPolling();
@@ -71,12 +76,15 @@ export default function VoiceInterviewEvaluationPage() {
         const response = await voiceInterviewApi.getEvaluation(parseInt(sessionId));
         const status = response.evaluateStatus;
         setEvaluateStatus(status);
+        setEvaluateStatusUpdatedAt(
+          current => response.evaluateStatusUpdatedAt ?? current ?? new Date().toISOString(),
+        );
 
         if (status === 'COMPLETED' && response.evaluation) {
           setEvaluation(response.evaluation);
           setLoading(false);
         } else if (status === 'FAILED') {
-          setError(response.evaluateError || '评估生成失败');
+          setError('评估任务未能完成，请重新生成');
           setLoading(false);
         } else {
           startPolling();
@@ -93,6 +101,7 @@ export default function VoiceInterviewEvaluationPage() {
     setLoading(true);
     setError(null);
     setEvaluateStatus(null);
+    setEvaluateStatusUpdatedAt(new Date().toISOString());
 
     try {
       const status = await voiceInterviewApi.generateEvaluation(parseInt(sessionId));
@@ -131,16 +140,49 @@ export default function VoiceInterviewEvaluationPage() {
     };
   }, [evaluation, sessionId]);
 
+  const evaluationPresentation = useMemo(
+    () => getVoiceEvaluationPresentation({
+      status: evaluateStatus,
+      statusUpdatedAt: evaluateStatusUpdatedAt,
+    }),
+    [evaluateStatus, evaluateStatusUpdatedAt],
+  );
+
   // Loading state
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="text-center">
-          <div className="w-10 h-10 border-3 border-slate-200 dark:border-slate-700 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600 dark:text-slate-300">
-            {evaluateStatus === 'PROCESSING' ? 'AI 正在分析面试表现...' : '正在生成评估报告...'}
+        <div className="text-center max-w-md px-6">
+          {evaluationPresentation.tone === 'warning' ? (
+            <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+            </div>
+          ) : (
+            <div className="w-10 h-10 border-3 border-slate-200 dark:border-slate-700 border-t-primary-500 rounded-full animate-spin mx-auto mb-4" />
+          )}
+          <p className="text-lg font-medium text-slate-700 dark:text-slate-200">
+            {evaluationPresentation.title}
           </p>
-          <p className="text-slate-400 text-sm mt-2">预计需要 10-30 秒</p>
+          <p className="text-slate-400 text-sm mt-2">
+            {evaluationPresentation.description}
+          </p>
+          <div className="flex items-center gap-3 justify-center mt-6">
+            {evaluationPresentation.retryable && (
+              <button
+                onClick={handleRetry}
+                className="px-5 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                重新生成
+              </button>
+            )}
+            <button
+              onClick={() => navigate('/interviews')}
+              className="px-5 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600"
+            >
+              返回面试记录
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -159,7 +201,7 @@ export default function VoiceInterviewEvaluationPage() {
               className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 flex items-center gap-2"
             >
               <RefreshCw className="w-4 h-4" />
-              重试
+              重新生成
             </button>
             <button
               onClick={() => navigate('/interviews')}

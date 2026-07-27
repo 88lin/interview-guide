@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -164,7 +165,8 @@ public class VoiceInterviewController {
         AsyncTaskStatus status = session.getEvaluateStatus();
         VoiceEvaluationStatusDTO.VoiceEvaluationStatusDTOBuilder builder = VoiceEvaluationStatusDTO.builder()
                 .evaluateStatus(status != null ? status.name() : null)
-                .evaluateError(session.getEvaluateError());
+                .evaluateError(session.getEvaluateError())
+                .evaluateStatusUpdatedAt(session.getUpdatedAt());
 
         if (status == AsyncTaskStatus.COMPLETED) {
             VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
@@ -196,15 +198,17 @@ public class VoiceInterviewController {
             VoiceEvaluationDetailDTO evaluation = evaluationService.getEvaluation(sessionId);
             return Result.success(VoiceEvaluationStatusDTO.builder()
                     .evaluateStatus(AsyncTaskStatus.COMPLETED.name())
+                    .evaluateStatusUpdatedAt(session.getUpdatedAt())
                     .evaluation(evaluation)
                     .build());
         }
 
-        // If already in progress, return current status
-        if (session.getEvaluateStatus() == AsyncTaskStatus.PENDING
-                || session.getEvaluateStatus() == AsyncTaskStatus.PROCESSING) {
+        // A POST is an explicit retry. Requeue PENDING tasks instead of returning
+        // the same stuck state; PROCESSING tasks keep their current worker.
+        if (session.getEvaluateStatus() == AsyncTaskStatus.PROCESSING) {
             return Result.success(VoiceEvaluationStatusDTO.builder()
                     .evaluateStatus(session.getEvaluateStatus().name())
+                    .evaluateStatusUpdatedAt(session.getUpdatedAt())
                     .build());
         }
 
@@ -213,6 +217,7 @@ public class VoiceInterviewController {
 
         return Result.success(VoiceEvaluationStatusDTO.builder()
                 .evaluateStatus(AsyncTaskStatus.PENDING.name())
+                .evaluateStatusUpdatedAt(LocalDateTime.now())
                 .build());
     }
 }

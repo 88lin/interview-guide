@@ -19,7 +19,7 @@ public class VoiceEvaluationDetailDTO {
 
     private Long sessionId;
     private int totalQuestions;
-    private int overallScore;
+    private Integer overallScore;
     private String overallFeedback;
     private List<String> strengths;
     private List<String> improvements;

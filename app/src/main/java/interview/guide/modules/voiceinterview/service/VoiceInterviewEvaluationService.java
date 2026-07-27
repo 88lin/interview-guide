@@ -194,7 +194,7 @@ public class VoiceInterviewEvaluationService {
             VoiceInterviewEvaluationEntity entity = evaluationRepository.findBySessionId(sessionId)
                 .orElseGet(() -> VoiceInterviewEvaluationEntity.builder().sessionId(sessionId).build());
 
-            entity.setOverallScore(0);
+            entity.setOverallScore(null);
             entity.setOverallFeedback("本次语音面试未形成有效对话记录，暂无可评估内容。");
             entity.setQuestionEvaluationsJson("[]");
             entity.setStrengthsJson("[]");

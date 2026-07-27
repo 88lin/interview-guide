@@ -51,7 +51,7 @@ export interface VoiceAnswerDetail {
 export interface VoiceEvaluationDetail {
   sessionId: number;
   totalQuestions: number;
-  overallScore: number;
+  overallScore: number | null;
   overallFeedback: string;
   strengths: string[];
   improvements: string[];
@@ -64,6 +64,7 @@ export interface VoiceEvaluationDetail {
 export interface EvaluationStatusResponse {
   evaluateStatus: string | null;  // PENDING | PROCESSING | COMPLETED | FAILED
   evaluateError?: string | null;
+  evaluateStatusUpdatedAt?: string | null;
   evaluation?: VoiceEvaluationDetail | null;
 }
 

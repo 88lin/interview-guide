@@ -1148,7 +1148,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
         });
     }
 
-    @Scheduled(fixedRate = 300_000)
+    @Scheduled(fixedRate = 60_000)
     public void cleanupStaleSessions() {
         try {
             int cleaned = interviewService.cleanupStaleSessions();

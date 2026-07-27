@@ -58,6 +58,8 @@ public class VoiceInterviewService {
     private static final String SESSION_CACHE_KEY_PREFIX = "voice:interview:session:";
     private static final int CACHE_TTL_HOURS = 1;
     private static final String DEFAULT_USER_ID = "default";
+    private static final Duration PENDING_EVALUATION_REQUEUE_DELAY = Duration.ofMinutes(2);
+    private static final Duration PROCESSING_EVALUATION_TIMEOUT = Duration.ofMinutes(30);
 
     /**
      * Create a new voice interview session
@@ -111,6 +113,7 @@ public class VoiceInterviewService {
         }
         log.info("Auto-ending IN_PROGRESS session {} after WebSocket disconnect", sessionId);
         endSession(session);
+        sendEvaluateTaskAfterCommit(sessionIdLong);
     }
 
     /**
@@ -569,6 +572,7 @@ public class VoiceInterviewService {
                 session.setEvaluateStatus(status);
                 session.setEvaluateError(error);
                 sessionRepository.save(session);
+                invalidateSessionCache(sessionId);
                 log.debug("Evaluation status updated: sessionId={}, status={}", sessionId, status);
             });
         } catch (Exception e) {
@@ -658,7 +662,7 @@ public class VoiceInterviewService {
     }
 
     /**
-     * 清理超时的 IN_PROGRESS 会话和卡住的 PROCESSING 评估。
+     * 清理超时会话，重新投递卡住的 PENDING 评估，并结束超时的 PROCESSING 评估。
      * 由 @Scheduled 在 WebSocketHandler 中定时触发。
      */
     @Transactional
@@ -673,10 +677,28 @@ public class VoiceInterviewService {
             log.info("Cleaning up stale IN_PROGRESS session {}, started at {}",
                 session.getId(), session.getStartTime());
             endSession(session);
+            sendEvaluateTaskAfterCommit(session.getId());
             cleaned++;
         }
 
-        LocalDateTime evalStaleThreshold = LocalDateTime.now().minusMinutes(30);
+        LocalDateTime pendingStaleThreshold = LocalDateTime.now()
+            .minus(PENDING_EVALUATION_REQUEUE_DELAY);
+        List<VoiceInterviewSessionEntity> pendingEvals = sessionRepository
+            .findByEvaluateStatusAndUpdatedAtBefore(AsyncTaskStatus.PENDING, pendingStaleThreshold);
+
+        for (VoiceInterviewSessionEntity session : pendingEvals) {
+            log.warn("Requeueing stale PENDING evaluation for session {}, last updated at {}",
+                session.getId(), session.getUpdatedAt());
+            session.setEvaluateError(null);
+            session.setUpdatedAt(LocalDateTime.now());
+            sessionRepository.save(session);
+            invalidateSessionCache(session.getId());
+            sendEvaluateTaskAfterCommit(session.getId());
+            cleaned++;
+        }
+
+        LocalDateTime evalStaleThreshold = LocalDateTime.now()
+            .minus(PROCESSING_EVALUATION_TIMEOUT);
         List<VoiceInterviewSessionEntity> stuckEvals = sessionRepository
             .findByEvaluateStatusAndUpdatedAtBefore(AsyncTaskStatus.PROCESSING, evalStaleThreshold);
 
@@ -685,6 +707,7 @@ public class VoiceInterviewService {
             session.setEvaluateStatus(AsyncTaskStatus.FAILED);
             session.setEvaluateError("评估超时，请重新触发");
             sessionRepository.save(session);
+            invalidateSessionCache(session.getId());
             cleaned++;
         }
 
