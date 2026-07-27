@@ -58,7 +58,7 @@ public class VoiceInterviewService {
     private static final String SESSION_CACHE_KEY_PREFIX = "voice:interview:session:";
     private static final int CACHE_TTL_HOURS = 1;
     private static final String DEFAULT_USER_ID = "default";
-    private static final Duration PENDING_EVALUATION_REQUEUE_DELAY = Duration.ofMinutes(2);
+    private static final Duration PENDING_EVALUATION_REQUEUE_DELAY = Duration.ofMinutes(3);
     private static final Duration PROCESSING_EVALUATION_TIMEOUT = Duration.ofMinutes(30);
 
     /**

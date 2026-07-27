@@ -17,6 +17,12 @@ interface VoiceEvaluationStatusInput {
   now?: number;
 }
 
+export function shouldRefreshVoiceEvaluationPresentation(
+  status?: string | null,
+): boolean {
+  return status === 'PENDING' || status === 'PROCESSING';
+}
+
 function hasWaitedPastRetryThreshold(
   statusUpdatedAt: string | null | undefined,
   now: number,

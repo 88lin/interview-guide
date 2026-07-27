@@ -13,6 +13,7 @@ export default function VoiceInterviewEvaluationPage() {
   const [loading, setLoading] = useState(true);
   const [evaluateStatus, setEvaluateStatus] = useState<string | null>(null);
   const [evaluateStatusUpdatedAt, setEvaluateStatusUpdatedAt] = useState<string | null>(null);
+  const [presentationNow, setPresentationNow] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -49,6 +50,7 @@ export default function VoiceInterviewEvaluationPage() {
   const handleStatusResponse = (response: EvaluationStatusResponse) => {
     const status = response.evaluateStatus;
     setEvaluateStatus(status);
+    setPresentationNow(Date.now());
     setEvaluateStatusUpdatedAt(
       current => response.evaluateStatusUpdatedAt ?? current ?? new Date().toISOString(),
     );
@@ -76,6 +78,7 @@ export default function VoiceInterviewEvaluationPage() {
         const response = await voiceInterviewApi.getEvaluation(parseInt(sessionId));
         const status = response.evaluateStatus;
         setEvaluateStatus(status);
+        setPresentationNow(Date.now());
         setEvaluateStatusUpdatedAt(
           current => response.evaluateStatusUpdatedAt ?? current ?? new Date().toISOString(),
         );
@@ -102,6 +105,7 @@ export default function VoiceInterviewEvaluationPage() {
     setError(null);
     setEvaluateStatus(null);
     setEvaluateStatusUpdatedAt(new Date().toISOString());
+    setPresentationNow(Date.now());
 
     try {
       const status = await voiceInterviewApi.generateEvaluation(parseInt(sessionId));
@@ -144,8 +148,9 @@ export default function VoiceInterviewEvaluationPage() {
     () => getVoiceEvaluationPresentation({
       status: evaluateStatus,
       statusUpdatedAt: evaluateStatusUpdatedAt,
+      now: presentationNow,
     }),
-    [evaluateStatus, evaluateStatusUpdatedAt],
+    [evaluateStatus, evaluateStatusUpdatedAt, presentationNow],
   );
 
   // Loading state

@@ -13,7 +13,10 @@ import {
   isCompletedStatus,
   isEvaluateCompleted,
 } from './interviewHistoryStats.ts';
-import {getVoiceEvaluationPresentation} from './voiceEvaluationStatus.ts';
+import {
+  getVoiceEvaluationPresentation,
+  shouldRefreshVoiceEvaluationPresentation,
+} from './voiceEvaluationStatus.ts';
 import {skillApi, type SkillDTO} from '../api/skill';
 import {getTemplateName} from '../utils/voiceInterview';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
@@ -269,7 +272,9 @@ export default function InterviewHistoryPage({
       all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       setItems(prev => {
-        if (isPolling && itemsEqual(prev, all)) return prev;
+        const hasActiveEvaluation = all.some(item =>
+          shouldRefreshVoiceEvaluationPresentation(item.evaluateStatus));
+        if (isPolling && itemsEqual(prev, all) && !hasActiveEvaluation) return prev;
         return all;
       });
     } catch (err) {
