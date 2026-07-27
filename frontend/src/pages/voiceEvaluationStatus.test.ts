@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   getVoiceEvaluationPresentation,
+  shouldRefreshVoiceEvaluationPresentation,
   VOICE_EVALUATION_RETRY_AFTER_MS,
 } from './voiceEvaluationStatus.ts';
 
@@ -56,4 +57,12 @@ test('PROCESSING 和 FAILED 使用不同的操作提示', () => {
     retryable: true,
     shouldPoll: false,
   });
+});
+
+test('只有活动中的评估需要随轮询刷新等待时间展示', () => {
+  assert.equal(shouldRefreshVoiceEvaluationPresentation('PENDING'), true);
+  assert.equal(shouldRefreshVoiceEvaluationPresentation('PROCESSING'), true);
+  assert.equal(shouldRefreshVoiceEvaluationPresentation('COMPLETED'), false);
+  assert.equal(shouldRefreshVoiceEvaluationPresentation('FAILED'), false);
+  assert.equal(shouldRefreshVoiceEvaluationPresentation(null), false);
 });
