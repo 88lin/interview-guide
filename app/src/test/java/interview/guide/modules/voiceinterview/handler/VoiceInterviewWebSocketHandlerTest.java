@@ -3,6 +3,7 @@ package interview.guide.modules.voiceinterview.handler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
+import interview.guide.modules.voiceinterview.context.VoiceContextCompressor;
 import interview.guide.modules.voiceinterview.service.DashscopeLlmService;
 import interview.guide.modules.voiceinterview.service.QwenAsrService;
 import interview.guide.modules.voiceinterview.service.QwenTtsService;
@@ -37,6 +38,8 @@ class VoiceInterviewWebSocketHandlerTest {
   private DashscopeLlmService llmService;
   @Mock
   private VoiceInterviewService interviewService;
+  @Mock
+  private VoiceContextCompressor voiceContextCompressor;
   @Mock
   private ObjectProvider<MeterRegistry> meterRegistryProvider;
 
@@ -94,6 +97,7 @@ class VoiceInterviewWebSocketHandlerTest {
         ttsService,
         llmService,
         interviewService,
+        voiceContextCompressor,
         properties,
         meterRegistryProvider
     );
