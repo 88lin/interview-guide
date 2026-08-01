@@ -30,5 +30,7 @@ public record CreateInterviewRequest(
 
     List<CategoryDTO> customCategories,   // 自定义面试的分类（JD 解析结果）
 
-    String jdText                          // JD 原文（自定义面试时作为出题依据）
+    String jdText,                         // JD 原文（自定义面试时作为出题依据）
+
+    String requestId                       // 创建请求幂等键，刷新/重试时复用同一会话
 ) {}

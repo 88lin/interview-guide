@@ -97,7 +97,7 @@ export default function InterviewHubPage() {
     }
 
     if (config.mode === 'text') {
-      navigate('/interview', {
+      navigate(`/interview/create/${crypto.randomUUID()}`, {
         state: {
           resumeId: config.resumeId,
           interviewConfig: {

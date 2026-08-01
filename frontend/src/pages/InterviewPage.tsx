@@ -20,6 +20,7 @@ interface InterviewProps {
   resumeText: string;
   resumeId?: number;
   sessionIdToResume?: string;
+  requestId?: string;
   initialConfig?: {
     questionCount?: number;
     llmProvider?: string;
@@ -29,6 +30,7 @@ interface InterviewProps {
     jdText?: string;
   };
   onBack: () => void;
+  onSessionCreated: (sessionId: string) => void;
   onInterviewComplete: () => void;
 }
 
@@ -36,8 +38,10 @@ export default function Interview({
   resumeText,
   resumeId,
   sessionIdToResume,
+  requestId,
   initialConfig,
   onBack,
+  onSessionCreated,
   onInterviewComplete,
 }: InterviewProps) {
   const [session, setSession] = useState<InterviewSession | null>(null);
@@ -85,9 +89,11 @@ export default function Interview({
         difficulty,
         customCategories: skillId === CUSTOM_SKILL_ID ? customCategories : undefined,
         jdText: skillId === CUSTOM_SKILL_ID ? jdText : undefined,
+        requestId,
       });
 
       initSession(newSession);
+      onSessionCreated(newSession.sessionId);
     } catch (err) {
       setError('创建面试失败，请重试');
       console.error(err);

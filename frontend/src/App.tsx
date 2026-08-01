@@ -97,7 +97,11 @@ interface InterviewEntryState {
 
 // 模拟面试包装器
 function InterviewWrapper() {
-  const { resumeId } = useParams<{ resumeId: string }>();
+  const { resumeId, requestId, activeSessionId } = useParams<{
+    resumeId: string;
+    requestId: string;
+    activeSessionId: string;
+  }>();
   const navigate = useNavigate();
   const location = useLocation();
   const entryState = (location.state as InterviewEntryState | undefined) ?? {};
@@ -140,6 +144,20 @@ function InterviewWrapper() {
     navigate('/interviews');
   };
 
+  const handleSessionCreated = (sessionId: string) => {
+    navigate(`/interview/session/${sessionId}`, { replace: true, state: entryState });
+  };
+
+  if (!requestId && !activeSessionId && !entryState.sessionIdToResume) {
+    return (
+      <Navigate
+        to={`/interview/create/${crypto.randomUUID()}`}
+        replace
+        state={{ ...entryState, resumeId: effectiveResumeId }}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -155,9 +173,11 @@ function InterviewWrapper() {
     <Interview
       resumeText={resumeText}
       resumeId={effectiveResumeId}
-      sessionIdToResume={entryState.sessionIdToResume}
+      sessionIdToResume={activeSessionId ?? entryState.sessionIdToResume}
+      requestId={requestId}
       initialConfig={entryState.interviewConfig}
       onBack={handleBack}
+      onSessionCreated={handleSessionCreated}
       onInterviewComplete={handleInterviewComplete}
     />
   );
@@ -192,6 +212,12 @@ function App() {
 
             {/* 模拟面试（通用入口） */}
             <Route path="interview" element={<InterviewWrapper />} />
+
+            {/* 创建中的文本面试，请求 ID 用于刷新幂等 */}
+            <Route path="interview/create/:requestId" element={<InterviewWrapper />} />
+
+            {/* 进行中的文本面试，刷新时按会话 ID 恢复 */}
+            <Route path="interview/session/:activeSessionId" element={<InterviewWrapper />} />
 
             {/* 模拟面试 */}
             <Route path="interview/:resumeId" element={<InterviewWrapper />} />
@@ -242,7 +268,7 @@ function InterviewHistoryWrapper() {
   };
 
   const handleContinueInterview = (sessionId: string) => {
-    navigate('/interview', { state: { sessionIdToResume: sessionId } });
+    navigate(`/interview/session/${sessionId}`);
   };
 
   return <InterviewHistoryPage onBack={handleBack} onViewInterview={handleViewInterview} onRestartInterview={handleRestartInterview} onContinueInterview={handleContinueInterview} />;
