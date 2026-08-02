@@ -142,7 +142,7 @@ class VoiceContextCompressorTest {
         }
 
         @Test
-        @DisplayName("SUMMARY 模式但未达批次数：不调用 LLM，recent 取窗口原文，summary 沿用缓存")
+        @DisplayName("SUMMARY 模式但未达批次数：不调用 LLM，保留所有尚未被摘要覆盖的轮次")
         void summaryNotTriggered() {
             properties.getContextCompression().setEnabled(true);
             properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
@@ -155,7 +155,8 @@ class VoiceContextCompressorTest {
 
             assertEquals("已有摘要", r.summary());
             assertFalse(r.changed());
-            assertEquals(20, r.recent().size());
+            assertEquals(25, r.recent().size());
+            assertEquals(1, r.recent().getFirst().getSequenceNum());
             verify(llmProviderRegistry, never()).getPlainChatClient();
         }
 
@@ -184,7 +185,7 @@ class VoiceContextCompressorTest {
     class FailureAndCompat {
 
         @Test
-        @DisplayName("摘要生成抛异常：降级沿用已有摘要，changed=false，不阻塞主链路")
+        @DisplayName("摘要生成抛异常：降级沿用已有摘要，并保留所有未覆盖轮次")
         void summaryFailureFallback() {
             properties.getContextCompression().setEnabled(true);
             properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
@@ -205,7 +206,8 @@ class VoiceContextCompressorTest {
             // 失败降级：summary 仍为已有摘要，且未标记 changed（避免无谓持久化）
             assertEquals("已有摘要", r.summary());
             assertFalse(r.changed());
-            assertEquals(20, r.recent().size());
+            assertEquals(35, r.recent().size());
+            assertEquals(1, r.recent().getFirst().getSequenceNum());
         }
 
         @Test
