@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -299,6 +300,32 @@ public class VoiceInterviewService {
     public List<VoiceInterviewMessageEntity> getConversationHistory(String sessionId) {
         Long sessionIdLong = parseSessionId(sessionId);
         return messageRepository.findBySessionIdOrderBySequenceNumAsc(sessionIdLong);
+    }
+
+    /**
+     * 读取会话已持久化的上下文摘要行（message_type=SUMMARY）。无则空 Optional。
+     */
+    public Optional<VoiceInterviewMessageEntity> loadSummaryRow(String sessionId) {
+        Long sessionIdLong = parseSessionId(sessionId);
+        return messageRepository.findFirstBySessionIdAndMessageTypeOrderBySequenceNumAsc(
+            sessionIdLong, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
+    }
+
+    /**
+     * 持久化上下文摘要行。先删除旧的 SUMMARY 行再写入新行（UPSERT 语义，避免重复行）。
+     * sequenceNum 取 {@code -(coveredTurns + 1)}：负值保证排序最前，且编码已覆盖轮次数。
+     */
+    public void saveSummaryRow(String sessionId, String summary, int coveredTurns) {
+        Long sessionIdLong = parseSessionId(sessionId);
+        messageRepository.deleteBySessionIdAndMessageType(
+            sessionIdLong, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
+        VoiceInterviewMessageEntity row = VoiceInterviewMessageEntity.builder()
+            .sessionId(sessionIdLong)
+            .messageType(VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY)
+            .aiGeneratedText(summary)
+            .sequenceNum(-(coveredTurns + 1))
+            .build();
+        messageRepository.save(row);
     }
 
     /**

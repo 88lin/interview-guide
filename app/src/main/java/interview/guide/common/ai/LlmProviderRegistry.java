@@ -116,6 +116,14 @@ public class LlmProviderRegistry {
     }
 
     /**
+     * 获取默认 provider 的不带 SkillsTool 的 ChatClient，用于纯粹的摘要 / 结构化文本场景。
+     * 与 {@link #getDefaultChatClient()} 的区别在于不挂 Skill 工具与记忆 Advisor，避免无关上下文干扰。
+     */
+    public ChatClient getPlainChatClient() {
+        return getPlainChatClient(resolveDefaultChatProviderId());
+    }
+
+    /**
      * Get a ChatClient for the specified provider, falling back to the default if null, blank, or
      * the legacy "default" alias.
      */

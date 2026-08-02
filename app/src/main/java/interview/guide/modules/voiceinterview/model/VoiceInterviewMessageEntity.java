@@ -24,7 +24,14 @@ public class VoiceInterviewMessageEntity {
     private Long sessionId;
 
     @Column(name = "message_type", nullable = false)
-    private String messageType; // USER_SPEECH, AI_SPEECH, SYSTEM
+    private String messageType; // USER_SPEECH, AI_SPEECH, SYSTEM, SUMMARY
+
+    /**
+     * 对话摘要行类型。用于持久化上下文压缩产生的滚动摘要，
+     * 其 sequenceNum 取负值以在排序时位于普通轮次之前，
+     * 并通过 {@code -(sequenceNum + 1)} 编码已覆盖的轮次数（coveredTurns）。
+     */
+    public static final String MESSAGE_TYPE_SUMMARY = "SUMMARY";
 
     @Column(name = "phase")
     @Enumerated(EnumType.STRING)
