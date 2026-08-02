@@ -221,15 +221,15 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                     return;
                 }
 
-                List<String> history = getHistory(sessionId);
-                if (history != null && !history.isEmpty()) {
-                    // 已有历史对话（如重连/恢复），不重复开场
-                    return;
-                }
-
                 VoiceInterviewSessionEntity sessionEntity = getSessionEntity(sessionId);
                 if (sessionEntity == null) {
                     log.warn("Session entity not found when sending opening question: {}", sessionId);
+                    return;
+                }
+
+                List<String> history = getHistory(sessionId, sessionEntity.getLlmProvider());
+                if (history != null && !history.isEmpty()) {
+                    // 已有历史对话（如重连/恢复），不重复开场
                     return;
                 }
 
@@ -645,7 +645,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                 return;
             }
 
-            List<String> conversationHistory = getHistory(sessionId);
+            List<String> conversationHistory = getHistory(sessionId, sessionEntity.getLlmProvider());
 
             long llmStartNanos = System.nanoTime();
             AtomicLong firstTokenAtNanos = new AtomicLong(0);
@@ -1230,29 +1230,18 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
      * 加载对话历史并进行上下文压缩（滑动窗口 + 可选增量摘要），再格式化为文本行。
      * 当 contextCompression.enabled=false 时行为与改前完全一致（返回全量格式化轮次）。
      */
-    private List<String> getHistory(String sessionId) {
+    private List<String> getHistory(String sessionId, String llmProvider) {
         try {
-            List<VoiceInterviewMessageEntity> all = interviewService.getConversationHistory(sessionId);
-
-            // 分离 SUMMARY 行（压缩产生的滚动摘要），其余视为正常轮次
-            VoiceInterviewMessageEntity summaryRow = null;
-            List<VoiceInterviewMessageEntity> turns = new ArrayList<>();
-            for (VoiceInterviewMessageEntity msg : all) {
-                if (VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY.equals(msg.getMessageType())) {
-                    if (summaryRow == null) {
-                        summaryRow = msg;
-                    }
-                } else {
-                    turns.add(msg);
-                }
-            }
+            List<VoiceInterviewMessageEntity> turns = interviewService.getConversationHistory(sessionId);
+            VoiceInterviewMessageEntity summaryRow = interviewService.loadSummaryRow(sessionId).orElse(null);
 
             String cachedSummary = summaryRow != null
                 ? VoiceInterviewMessageEntity.trimToNull(summaryRow.getAiGeneratedText()) : null;
             int coveredTurns = (summaryRow != null && summaryRow.getSequenceNum() != null)
                 ? Math.max(0, -summaryRow.getSequenceNum() - 1) : 0;
 
-            var compressed = voiceContextCompressor.compress(turns, cachedSummary, coveredTurns);
+            var compressed = voiceContextCompressor.compress(
+                turns, cachedSummary, coveredTurns, llmProvider);
 
             List<String> history = new ArrayList<>();
             if (compressed.summary() != null && !compressed.summary().isBlank()) {

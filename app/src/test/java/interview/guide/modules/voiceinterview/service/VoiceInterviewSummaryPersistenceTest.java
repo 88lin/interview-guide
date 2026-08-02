@@ -61,13 +61,6 @@ class VoiceInterviewSummaryPersistenceTest {
   @Test
   @DisplayName("公开对话历史不应包含内部 SUMMARY 行")
   void conversationHistoryExcludesSummaryRows() {
-    VoiceInterviewMessageEntity summary = VoiceInterviewMessageEntity.builder()
-        .id(1L)
-        .sessionId(42L)
-        .messageType(VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY)
-        .aiGeneratedText("内部摘要")
-        .sequenceNum(-6)
-        .build();
     VoiceInterviewMessageEntity dialogue = VoiceInterviewMessageEntity.builder()
         .id(2L)
         .sessionId(42L)
@@ -75,8 +68,9 @@ class VoiceInterviewSummaryPersistenceTest {
         .aiGeneratedText("请介绍一下项目")
         .sequenceNum(1)
         .build();
-    when(messageRepository.findBySessionIdOrderBySequenceNumAsc(42L))
-        .thenReturn(List.of(summary, dialogue));
+    when(messageRepository.findBySessionIdAndMessageTypeNotOrderBySequenceNumAsc(
+        42L, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY))
+        .thenReturn(List.of(dialogue));
 
     List<VoiceInterviewMessageEntity> result = service.getConversationHistory("42");
 
@@ -94,7 +88,7 @@ class VoiceInterviewSummaryPersistenceTest {
         .aiGeneratedText("旧摘要")
         .sequenceNum(-6)
         .build();
-    when(sessionRepository.findById(42L)).thenReturn(Optional.of(session));
+    when(sessionRepository.findByIdForUpdate(42L)).thenReturn(Optional.of(session));
     when(messageRepository.findFirstBySessionIdAndMessageTypeOrderBySequenceNumAsc(
         42L, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY))
         .thenReturn(Optional.of(existing));
@@ -104,7 +98,6 @@ class VoiceInterviewSummaryPersistenceTest {
     assertThat(existing.getAiGeneratedText()).isEqualTo("新摘要");
     assertThat(existing.getSequenceNum()).isEqualTo(-11);
     verify(messageRepository).save(existing);
-    verify(messageRepository, never()).deleteBySessionIdAndMessageType(
-        42L, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
+    verify(messageRepository, never()).deleteBySessionId(42L);
   }
 }

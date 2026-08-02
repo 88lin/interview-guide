@@ -26,6 +26,10 @@ public class InterviewSessionEntity {
     // 会话ID (UUID)
     @Column(nullable = false, unique = true, length = 36)
     private String sessionId;
+
+    // 创建请求幂等键（仅文本面试创建链路使用）
+    @Column(name = "request_id", unique = true, length = 64)
+    private String requestId;
     
     // 面试主题
     @Column(length = 64)
@@ -140,6 +144,14 @@ public class InterviewSessionEntity {
     
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+
+    public String getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(String requestId) {
+        this.requestId = requestId;
     }
     
     public Long getResumeId() {

@@ -6,7 +6,7 @@ import type { UploadKnowledgeBaseResponse } from './api/knowledgebase';
 import type { Difficulty } from './components/UnifiedInterviewModal';
 import type { CategoryDTO } from './api/skill';
 import { Loader2 } from 'lucide-react';
-import { ROUTES } from './constants/routes';
+import { ROUTE_PATTERNS, ROUTES } from './constants/routes';
 
 // Lazy load components
 const UploadPage = lazy(() => import('./pages/UploadPage'));
@@ -148,13 +148,13 @@ function InterviewWrapper() {
   };
 
   const handleSessionCreated = (sessionId: string) => {
-    navigate(`/interview/session/${sessionId}`, { replace: true, state: entryState });
+    navigate(ROUTES.interviewSession(sessionId), { replace: true, state: entryState });
   };
 
   if (!requestId && !activeSessionId && !entryState.sessionIdToResume) {
     return (
       <Navigate
-        to={`/interview/create/${crypto.randomUUID()}`}
+        to={ROUTES.interviewCreate(crypto.randomUUID())}
         replace
         state={{ ...entryState, resumeId: effectiveResumeId }}
       />
@@ -214,13 +214,13 @@ function App() {
             <Route path="interviews/:sessionId" element={<InterviewDetailPageWrapper />} />
 
             {/* 模拟面试（通用入口） */}
-            <Route path="interview" element={<InterviewWrapper />} />
+            <Route path={ROUTES.interview.slice(1)} element={<InterviewWrapper />} />
 
             {/* 创建中的文本面试，请求 ID 用于刷新幂等 */}
-            <Route path="interview/create/:requestId" element={<InterviewWrapper />} />
+            <Route path={ROUTE_PATTERNS.interviewCreate} element={<InterviewWrapper />} />
 
             {/* 进行中的文本面试，刷新时按会话 ID 恢复 */}
-            <Route path="interview/session/:activeSessionId" element={<InterviewWrapper />} />
+            <Route path={ROUTE_PATTERNS.interviewSession} element={<InterviewWrapper />} />
 
             {/* 模拟面试 */}
             <Route path="interview/:resumeId" element={<InterviewWrapper />} />
@@ -278,7 +278,7 @@ function InterviewHistoryWrapper() {
   };
 
   const handleContinueInterview = (sessionId: string) => {
-    navigate(`/interview/session/${sessionId}`);
+    navigate(ROUTES.interviewSession(sessionId));
   };
 
   return <InterviewHistoryPage onBack={handleBack} onViewInterview={handleViewInterview} onRestartInterview={handleRestartInterview} onContinueInterview={handleContinueInterview} />;

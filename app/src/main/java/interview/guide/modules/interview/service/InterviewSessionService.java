@@ -83,12 +83,25 @@ public class InterviewSessionService {
             return getSession(cachedSessionId);
         }
 
-        InterviewSessionDTO created = createSessionInternal(request);
+        Optional<InterviewSessionEntity> existing = persistenceService.findByRequestId(requestId);
+        if (existing.isPresent()) {
+            String existingSessionId = existing.get().getSessionId();
+            log.info("从数据库恢复幂等创建请求: requestId={}, sessionId={}",
+                requestId, existingSessionId);
+            redisService.set(resultKey, existingSessionId, CREATE_RESULT_TTL);
+            return getSession(existingSessionId);
+        }
+
+        InterviewSessionDTO created = createSessionInternal(request, requestId);
         redisService.set(resultKey, created.sessionId(), CREATE_RESULT_TTL);
         return created;
     }
 
     private InterviewSessionDTO createSessionInternal(CreateInterviewRequest request) {
+        return createSessionInternal(request, null);
+    }
+
+    private InterviewSessionDTO createSessionInternal(CreateInterviewRequest request, String requestId) {
         // 如果指定了resumeId且未强制创建，检查是否有未完成的会话
         if (request.resumeId() != null && !Boolean.TRUE.equals(request.forceCreate())) {
             Optional<InterviewSessionDTO> unfinishedOpt = findUnfinishedSession(request.resumeId());
@@ -122,7 +135,37 @@ public class InterviewSessionService {
             request.jdText()
         );
 
-        // 保存到 Redis 缓存
+        if (requestId != null) {
+            try {
+                persistenceService.saveIdempotentSession(
+                    sessionId,
+                    request.resumeId(),
+                    questions.size(),
+                    questions,
+                    request.llmProvider(),
+                    skillId,
+                    difficulty,
+                    requestId
+                );
+            } catch (Exception e) {
+                Optional<InterviewSessionEntity> concurrentlyCreated =
+                    persistenceService.findByRequestId(requestId);
+                if (concurrentlyCreated.isPresent()) {
+                    return getSession(concurrentlyCreated.get().getSessionId());
+                }
+                log.error("持久化幂等面试会话失败: requestId={}", requestId, e);
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "创建面试会话失败，请重试");
+            }
+        } else {
+            try {
+                persistenceService.saveSession(sessionId, request.resumeId(),
+                    questions.size(), questions, request.llmProvider(), skillId, difficulty);
+            } catch (Exception e) {
+                log.warn("保存面试会话到数据库失败: {}", e.getMessage());
+            }
+        }
+
+        // 幂等请求必须先成功落库，再写入易失缓存，保证进程异常后可从数据库恢复。
         sessionCache.saveSession(
             sessionId,
             request.resumeText() != null ? request.resumeText() : "",
@@ -133,14 +176,6 @@ public class InterviewSessionService {
             0,
             SessionStatus.CREATED
         );
-
-        // 保存到数据库
-        try {
-            persistenceService.saveSession(sessionId, request.resumeId(),
-                questions.size(), questions, request.llmProvider(), skillId, difficulty);
-        } catch (Exception e) {
-            log.warn("保存面试会话到数据库失败: {}", e.getMessage());
-        }
 
         return new InterviewSessionDTO(
             sessionId,

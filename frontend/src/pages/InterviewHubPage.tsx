@@ -18,6 +18,7 @@ import {
   type InterviewMode,
   DIFFICULTY_OPTIONS,
 } from '../hooks/useInterviewConfig';
+import {ROUTES} from '../constants/routes';
 
 // 统一的面试记录项
 interface RecentInterviewItem {
@@ -97,7 +98,7 @@ export default function InterviewHubPage() {
     }
 
     if (config.mode === 'text') {
-      navigate(`/interview/create/${crypto.randomUUID()}`, {
+      navigate(ROUTES.interviewCreate(crypto.randomUUID()), {
         state: {
           resumeId: config.resumeId,
           interviewConfig: {

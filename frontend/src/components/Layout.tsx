@@ -4,6 +4,7 @@ import {BookOpen, Calendar, ChevronRight, Database, FileStack, MessageSquare, Mo
 import {useTheme} from '../hooks/useTheme';
 import {useState} from 'react';
 import UnifiedInterviewModal, {UnifiedInterviewConfig} from './UnifiedInterviewModal';
+import {ROUTES} from '../constants/routes';
 
 interface NavItem {
   id: string;
@@ -45,7 +46,7 @@ export default function Layout() {
   const handleInterviewStart = (config: UnifiedInterviewConfig) => {
     setInterviewModalPreset(null);
     if (config.mode === 'text') {
-      navigate(`/interview/create/${crypto.randomUUID()}`, {
+      navigate(ROUTES.interviewCreate(crypto.randomUUID()), {
         state: {
           resumeId: config.resumeId,
           interviewConfig: {
@@ -120,7 +121,7 @@ export default function Layout() {
     }
     if (path === '/interview-hub') {
       return currentPath === '/interview-hub'
-        || currentPath === '/interview'
+        || currentPath === ROUTES.interview
         || currentPath.startsWith('/interview/')
         || currentPath.startsWith('/voice-interview');
     }

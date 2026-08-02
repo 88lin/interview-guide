@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.DefaultResourceLoader;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +40,8 @@ class VoiceContextCompressorTest {
     void setUp() {
         properties = new VoiceInterviewProperties();
         properties.setContextCompression(new VoiceInterviewProperties.ContextCompressionConfig());
-        compressor = new VoiceContextCompressor(llmProviderRegistry, properties);
+        compressor = new VoiceContextCompressor(
+            llmProviderRegistry, properties, new DefaultResourceLoader());
     }
 
     private VoiceInterviewMessageEntity turn(int seq, String ai, String user) {
@@ -110,6 +112,24 @@ class VoiceContextCompressorTest {
             assertEquals(15, r.coveredTurns());
             assertEquals(20, r.recent().size());
             verify(llmProviderRegistry, times(1)).getPlainChatClient();
+        }
+
+        @Test
+        @DisplayName("SUMMARY 模式使用会话选择的 LLM 提供商")
+        void summaryUsesSessionProvider() {
+            properties.getContextCompression().setEnabled(true);
+            properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
+            properties.getContextCompression().setWindowSize(20);
+            properties.getContextCompression().setSummaryBatchSize(10);
+            List<VoiceInterviewMessageEntity> all = turns(35);
+            ChatClient chatClient = mockChatClient("glm", "合并后的摘要");
+
+            VoiceContextCompressor.CompressedHistory result =
+                compressor.compress(all, null, 0, "glm");
+
+            assertEquals("合并后的摘要", result.summary());
+            verify(llmProviderRegistry).getPlainChatClient("glm");
+            verify(llmProviderRegistry, never()).getPlainChatClient();
         }
     }
 
@@ -241,6 +261,18 @@ class VoiceContextCompressorTest {
         when(spec.call()).thenReturn(callSpec);
         when(callSpec.content()).thenReturn(content);
         when(llmProviderRegistry.getPlainChatClient()).thenReturn(chatClient);
+        return chatClient;
+    }
+
+    private ChatClient mockChatClient(String provider, String content) {
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec spec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec callSpec = mock(ChatClient.CallResponseSpec.class);
+        when(chatClient.prompt()).thenReturn(spec);
+        when(spec.user(anyString())).thenReturn(spec);
+        when(spec.call()).thenReturn(callSpec);
+        when(callSpec.content()).thenReturn(content);
+        when(llmProviderRegistry.getPlainChatClient(provider)).thenReturn(chatClient);
         return chatClient;
     }
 }
