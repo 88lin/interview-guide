@@ -7,6 +7,7 @@ import interview.guide.common.exception.ErrorCode;
 import interview.guide.common.model.AsyncTaskStatus;
 import interview.guide.infrastructure.redis.InterviewSessionCache;
 import interview.guide.infrastructure.redis.InterviewSessionCache.CachedSession;
+import interview.guide.infrastructure.redis.RedisService;
 import interview.guide.modules.interview.listener.EvaluateStreamProducer;
 import interview.guide.modules.interview.model.CreateInterviewRequest;
 import interview.guide.modules.interview.model.HistoricalQuestion;
@@ -25,10 +26,12 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 面试会话管理服务
@@ -39,6 +42,10 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class InterviewSessionService {
 
+    private static final String CREATE_LOCK_PREFIX = "interview:create:";
+    private static final String CREATE_RESULT_PREFIX = "interview:create:result:";
+    private static final Duration CREATE_RESULT_TTL = Duration.ofDays(1);
+
     private final InterviewQuestionService questionService;
     private final AnswerEvaluationService evaluationService;
     private final InterviewPersistenceService persistenceService;
@@ -46,6 +53,7 @@ public class InterviewSessionService {
     private final ObjectMapper objectMapper;
     private final EvaluateStreamProducer evaluateStreamProducer;
     private final LlmProviderRegistry llmProviderRegistry;
+    private final RedisService redisService;
 
     /**
      * 创建新的面试会话
@@ -53,6 +61,34 @@ public class InterviewSessionService {
      * 前端应该先调用 findUnfinishedSession 检查，或者使用 forceCreate 参数强制创建
      */
     public InterviewSessionDTO createSession(CreateInterviewRequest request) {
+        String requestId = normalizeRequestId(request.requestId());
+        if (requestId == null) {
+            return createSessionInternal(request);
+        }
+
+        return redisService.executeWithLock(
+            CREATE_LOCK_PREFIX + requestId,
+            185,
+            600,
+            TimeUnit.SECONDS,
+            () -> createIdempotentSession(request, requestId)
+        );
+    }
+
+    private InterviewSessionDTO createIdempotentSession(CreateInterviewRequest request, String requestId) {
+        String resultKey = CREATE_RESULT_PREFIX + requestId;
+        String cachedSessionId = redisService.get(resultKey);
+        if (cachedSessionId != null) {
+            log.info("复用缓存中的幂等创建请求: requestId={}, sessionId={}", requestId, cachedSessionId);
+            return getSession(cachedSessionId);
+        }
+
+        InterviewSessionDTO created = createSessionInternal(request);
+        redisService.set(resultKey, created.sessionId(), CREATE_RESULT_TTL);
+        return created;
+    }
+
+    private InterviewSessionDTO createSessionInternal(CreateInterviewRequest request) {
         // 如果指定了resumeId且未强制创建，检查是否有未完成的会话
         if (request.resumeId() != null && !Boolean.TRUE.equals(request.forceCreate())) {
             Optional<InterviewSessionDTO> unfinishedOpt = findUnfinishedSession(request.resumeId());
@@ -145,6 +181,18 @@ public class InterviewSessionService {
             knowledgeBaseId,
             interviewCategory
         );
+    }
+
+    private String normalizeRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+
+        String normalized = requestId.trim();
+        if (!normalized.matches("[A-Za-z0-9_-]{8,64}")) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "requestId 格式不正确");
+        }
+        return normalized;
     }
 
     /**

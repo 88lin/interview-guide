@@ -40,6 +40,7 @@ export interface CreateInterviewRequest {
   difficulty?: string;
   customCategories?: CategoryDTO[];
   jdText?: string;
+  requestId?: string;
 }
 
 export interface SubmitAnswerRequest {

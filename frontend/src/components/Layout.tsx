@@ -45,7 +45,7 @@ export default function Layout() {
   const handleInterviewStart = (config: UnifiedInterviewConfig) => {
     setInterviewModalPreset(null);
     if (config.mode === 'text') {
-      navigate('/interview', {
+      navigate(`/interview/create/${crypto.randomUUID()}`, {
         state: {
           resumeId: config.resumeId,
           interviewConfig: {
