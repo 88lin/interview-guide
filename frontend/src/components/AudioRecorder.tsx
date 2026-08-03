@@ -326,6 +326,7 @@ export default function AudioRecorder({
 
       {/* Record button */}
       <button
+        data-testid="voice-recorder-toggle"
         onClick={toggleRecording}
         disabled={disabled && !isRecording}
         className={`

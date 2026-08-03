@@ -819,6 +819,7 @@ export default function VoiceInterviewPage() {
                   <AnimatePresence mode="wait">
                     {isAiSpeaking || aiText ? (
                       <motion.p
+                        data-testid="voice-current-ai-text"
                         key="ai-active"
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -829,6 +830,7 @@ export default function VoiceInterviewPage() {
                       </motion.p>
                     ) : userText ? (
                       <motion.p
+                        data-testid="voice-current-user-text"
                         key="user-active"
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -876,6 +878,7 @@ export default function VoiceInterviewPage() {
                 />
 
                 <button
+                  data-testid="voice-submit-answer"
                   onClick={handleSubmitAnswer}
                   disabled={!canSubmit}
                   className={`px-5 py-2.5 rounded-xl font-medium text-sm transition-all ${
@@ -892,6 +895,7 @@ export default function VoiceInterviewPage() {
                 </button>
 
                 <button
+                  data-testid="voice-end-interview"
                   onClick={handleEndInterview}
                   disabled={connectionStatus !== 'connected'}
                   className="px-4 py-2 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"

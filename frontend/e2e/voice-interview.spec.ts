@@ -122,9 +122,9 @@ test.describe('语音面试', () => {
     await expect(recordButton).toBeEnabled();
     await recordButton.click();
 
-    await expect(page.getByText(USER_SUBTITLE)).toBeVisible();
+    await expect(page.getByTestId('voice-current-user-text')).toHaveText(USER_SUBTITLE);
     await page.getByTestId('voice-submit-answer').click();
-    await expect(page.getByText(AI_FOLLOW_UP)).toBeVisible();
+    await expect(page.getByTestId('voice-current-ai-text')).toHaveText(AI_FOLLOW_UP);
 
     await expect.poll(async () => page.evaluate(() =>
       (window as Window & { __voiceTestSentMessages?: { type: string }[] }).__voiceTestSentMessages
