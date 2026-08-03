@@ -4,10 +4,15 @@ import interview.guide.common.ai.LlmProviderRegistry;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewMessageEntity;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 语音面试上下文压缩器。
@@ -28,10 +33,14 @@ public class VoiceContextCompressor {
 
     private final LlmProviderRegistry llmProviderRegistry;
     private final VoiceInterviewProperties properties;
+    private final PromptTemplate summaryPromptTemplate;
 
-    public VoiceContextCompressor(LlmProviderRegistry llmProviderRegistry, VoiceInterviewProperties properties) {
+    public VoiceContextCompressor(LlmProviderRegistry llmProviderRegistry,
+                                  VoiceInterviewProperties properties,
+                                  ResourceLoader resourceLoader) {
         this.llmProviderRegistry = llmProviderRegistry;
         this.properties = properties;
+        this.summaryPromptTemplate = loadTemplate(resourceLoader);
     }
 
     /**
@@ -44,6 +53,15 @@ public class VoiceContextCompressor {
      */
     public CompressedHistory compress(List<VoiceInterviewMessageEntity> turns,
                                        String cachedSummary, int coveredTurns) {
+        return compress(turns, cachedSummary, coveredTurns, null);
+    }
+
+    /**
+     * 使用会话指定的 LLM 提供商压缩对话历史。
+     */
+    public CompressedHistory compress(List<VoiceInterviewMessageEntity> turns,
+                                       String cachedSummary, int coveredTurns,
+                                       String llmProvider) {
         var cfg = properties.getContextCompression();
         // 未启用 / NONE 模式 / 未达到窗口大小：不压缩，返回全量（向后兼容）
         if (!cfg.isEnabled() || cfg.getMode() == VoiceInterviewProperties.Mode.NONE
@@ -56,17 +74,20 @@ public class VoiceContextCompressor {
         int earlyCount = total - window;
         String summary = cachedSummary;
         boolean changed = false;
+        int effectiveCoveredTurns = VoiceInterviewMessageEntity.trimToNull(cachedSummary) == null
+            ? 0
+            : Math.min(Math.max(coveredTurns, 0), earlyCount);
 
         if (cfg.getMode() == VoiceInterviewProperties.Mode.SUMMARY
-                && earlyCount > coveredTurns
-                && earlyCount - coveredTurns >= cfg.getSummaryBatchSize()) {
+                && earlyCount > effectiveCoveredTurns
+                && earlyCount - effectiveCoveredTurns >= cfg.getSummaryBatchSize()) {
             // 仅对「尚未覆盖的早期轮次」做增量摘要合并，避免每轮都调用 LLM
             // earlyCount > coveredTurns 防御上游脏数据（如被损坏的 SUMMARY 行），避免 subList(from > to) 抛异常
-            List<String> earlyTurns = formatRecent(turns.subList(coveredTurns, earlyCount));
-            String newSummary = summarize(cachedSummary, earlyTurns);
+            List<String> earlyTurns = formatRecent(turns.subList(effectiveCoveredTurns, earlyCount));
+            String newSummary = summarize(cachedSummary, earlyTurns, llmProvider);
             if (newSummary != null && !newSummary.equals(cachedSummary)) {
                 summary = newSummary;
-                coveredTurns = earlyCount;
+                effectiveCoveredTurns = earlyCount;
                 changed = true;
             } else {
                 // 摘要未变化（或生成失败降级）：保持现状，不标记 changed，避免无谓持久化
@@ -74,8 +95,11 @@ public class VoiceContextCompressor {
             }
         }
 
-        List<VoiceInterviewMessageEntity> recent = turns.subList(earlyCount, total);
-        return new CompressedHistory(summary, recent, coveredTurns, changed);
+        int recentStart = cfg.getMode() == VoiceInterviewProperties.Mode.SUMMARY
+            ? effectiveCoveredTurns
+            : earlyCount;
+        List<VoiceInterviewMessageEntity> recent = turns.subList(recentStart, total);
+        return new CompressedHistory(summary, recent, effectiveCoveredTurns, changed);
     }
 
     /**
@@ -116,15 +140,20 @@ public class VoiceContextCompressor {
     /**
      * 将早期轮次增量合并进已有摘要。摘要生成失败则降级沿用已有摘要，不阻塞主链路。
      */
-    private String summarize(String prevSummary, List<String> earlyTurns) {
+    private String summarize(String prevSummary, List<String> earlyTurns, String llmProvider) {
         if (earlyTurns == null || earlyTurns.isEmpty()) {
             return prevSummary;
         }
         try {
-            String prompt = buildSummaryPrompt(prevSummary, earlyTurns);
+            String prompt = summaryPromptTemplate.render(Map.of(
+                "previousSummary", prevSummary == null ? "(空)" : prevSummary,
+                "newTurns", String.join("\n", earlyTurns)
+            ));
             // 使用不带 SkillsTool / MemoryAdvisor 的 plain client：摘要是纯文本压缩，
             // 不应混入面试素材工具，也不应让 MemoryAdvisor 重新注入完整历史（否则抵消压缩收益）
-            String result = llmProviderRegistry.getPlainChatClient()
+            String result = (llmProvider == null
+                    ? llmProviderRegistry.getPlainChatClient()
+                    : llmProviderRegistry.getPlainChatClient(llmProvider))
                     .prompt().user(prompt).call().content();
             return (result == null || result.isBlank()) ? prevSummary : result.trim();
         } catch (Exception e) {
@@ -133,15 +162,15 @@ public class VoiceContextCompressor {
         }
     }
 
-    private String buildSummaryPrompt(String prevSummary, List<String> earlyTurns) {
-        return new StringBuilder()
-                .append("你是一个面试对话摘要器。下方是一段语音面试的「前情摘要」（可能为空）与「新增对话轮次」。\n")
-                .append("请将新增轮次合并进前情摘要，输出一段简洁、保留关键事实（候选人提到的项目/技术栈/经历/已答题点）的中文摘要，")
-                .append("不要编造未提及的内容。\n\n")
-                .append("【前情摘要】\n").append(prevSummary == null ? "(空)" : prevSummary).append("\n\n")
-                .append("【新增轮次】\n").append(String.join("\n", earlyTurns)).append("\n\n")
-                .append("【合并后摘要】")
-                .toString();
+    private static PromptTemplate loadTemplate(ResourceLoader resourceLoader) {
+        try {
+            String template = resourceLoader
+                .getResource("classpath:prompts/voice-interview-context-summary.st")
+                .getContentAsString(StandardCharsets.UTF_8);
+            return new PromptTemplate(template);
+        } catch (IOException e) {
+            throw new IllegalStateException("加载语音面试上下文摘要模板失败", e);
+        }
     }
 
     /**

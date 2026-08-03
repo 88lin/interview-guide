@@ -8,6 +8,7 @@ import type {InterviewQuestion, InterviewSession} from '../types/interview';
 import type {Difficulty} from '../components/UnifiedInterviewModal';
 import type {CategoryDTO} from '../api/skill';
 import { CUSTOM_SKILL_ID } from '../hooks/useInterviewConfig';
+import {resolveInterviewEntry} from './interviewEntry';
 
 interface Message {
   type: 'interviewer' | 'user';
@@ -33,7 +34,7 @@ interface InterviewProps {
   subtitle?: string;
   loadingText?: string;
   onBack: () => void;
-  onSessionCreated: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string) => void;
   onInterviewComplete: () => void;
 }
 
@@ -71,8 +72,9 @@ export default function Interview({
   useEffect(() => {
     if (!startedRef.current) {
       startedRef.current = true;
-      if (sessionIdToResume) {
-        resumeExistingSession(sessionIdToResume);
+      const entry = resolveInterviewEntry(sessionIdToResume);
+      if (entry.type === 'resume') {
+        resumeExistingSession(entry.sessionId);
       } else {
         startInterview();
       }
@@ -99,7 +101,7 @@ export default function Interview({
       });
 
       initSession(newSession);
-      onSessionCreated(newSession.sessionId);
+      onSessionCreated?.(newSession.sessionId);
     } catch (err) {
       setError('创建面试失败，请重试');
       console.error(err);
@@ -237,8 +239,9 @@ export default function Interview({
                 // 重试应按入口类型走对应路径：恢复失败必须重试恢复，
                 // 否则会用 resumeText="" 创建一个新的默认 java-backend 普通面试，
                 // 知识库面试场景下会让用户从错误页面突然跳进无关会话
-                if (sessionIdToResume) {
-                  resumeExistingSession(sessionIdToResume);
+                const entry = resolveInterviewEntry(sessionIdToResume);
+                if (entry.type === 'resume') {
+                  resumeExistingSession(entry.sessionId);
                 } else {
                   startInterview();
                 }

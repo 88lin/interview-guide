@@ -24,5 +24,7 @@ GEMINI.md
 
 # Playwright MCP
 .playwright-mcp/
+frontend/test-results/
+frontend/playwright-report/
 /.agents
 skills-lock.json

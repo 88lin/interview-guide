@@ -64,9 +64,36 @@ public class InterviewPersistenceService {
                                               String sourceType,
                                               Long knowledgeBaseId,
                                               String interviewCategory) {
+        return saveSessionInternal(sessionId, resumeId, totalQuestions, questions, llmProvider,
+            skillId, difficulty, sourceType, knowledgeBaseId, interviewCategory, null);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public InterviewSessionEntity saveIdempotentSession(String sessionId, Long resumeId,
+                                                        int totalQuestions,
+                                                        List<InterviewQuestionDTO> questions,
+                                                        String llmProvider,
+                                                        String skillId,
+                                                        String difficulty,
+                                                        String requestId) {
+        return saveSessionInternal(sessionId, resumeId, totalQuestions, questions, llmProvider,
+            skillId, difficulty, "NORMAL", null, null, requestId);
+    }
+
+    private InterviewSessionEntity saveSessionInternal(String sessionId, Long resumeId,
+                                                       int totalQuestions,
+                                                       List<InterviewQuestionDTO> questions,
+                                                       String llmProvider,
+                                                       String skillId,
+                                                       String difficulty,
+                                                       String sourceType,
+                                                       Long knowledgeBaseId,
+                                                       String interviewCategory,
+                                                       String requestId) {
         try {
             InterviewSessionEntity session = new InterviewSessionEntity();
             session.setSessionId(sessionId);
+            session.setRequestId(requestId);
             session.setTotalQuestions(totalQuestions);
             session.setCurrentQuestionIndex(0);
             session.setStatus(InterviewSessionEntity.SessionStatus.CREATED);
@@ -266,6 +293,10 @@ public class InterviewPersistenceService {
      */
     public Optional<InterviewSessionEntity> findBySessionId(String sessionId) {
         return sessionRepository.findBySessionId(sessionId);
+    }
+
+    public Optional<InterviewSessionEntity> findByRequestId(String requestId) {
+        return sessionRepository.findByRequestId(requestId);
     }
     
     /**

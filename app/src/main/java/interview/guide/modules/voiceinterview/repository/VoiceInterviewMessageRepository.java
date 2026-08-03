@@ -18,16 +18,20 @@ public interface VoiceInterviewMessageRepository extends JpaRepository<VoiceInte
      */
     List<VoiceInterviewMessageEntity> findBySessionIdOrderBySequenceNumAsc(Long sessionId);
 
+    List<VoiceInterviewMessageEntity> findBySessionIdAndMessageTypeNotOrderBySequenceNumAsc(
+        Long sessionId, String messageType);
+
     Optional<VoiceInterviewMessageEntity>
         findFirstBySessionIdAndUserRecognizedTextIsNullAndAiGeneratedTextIsNotNullOrderBySequenceNumDesc(
             Long sessionId);
 
     long countBySessionId(Long sessionId);
 
+    long countBySessionIdAndMessageTypeNot(Long sessionId, String messageType);
+
     void deleteBySessionId(Long sessionId);
 
     Optional<VoiceInterviewMessageEntity> findFirstBySessionIdAndMessageTypeOrderBySequenceNumAsc(
         Long sessionId, String messageType);
 
-    void deleteBySessionIdAndMessageType(Long sessionId, String messageType);
 }

@@ -55,7 +55,8 @@ public class VoiceInterviewEvaluationService {
 
             VoiceInterviewSessionEntity session = getSession(sessionId);
             List<VoiceInterviewMessageEntity> messages = messageRepository
-                .findBySessionIdOrderBySequenceNumAsc(sessionId);
+                .findBySessionIdAndMessageTypeNotOrderBySequenceNumAsc(
+                    sessionId, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
 
             if (messages.isEmpty()) {
                 log.warn("语音面试会话无对话记录，生成空评估结果: sessionId={}", sessionId);

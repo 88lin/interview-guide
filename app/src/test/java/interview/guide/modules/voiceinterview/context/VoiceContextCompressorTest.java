@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.core.io.DefaultResourceLoader;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +40,8 @@ class VoiceContextCompressorTest {
     void setUp() {
         properties = new VoiceInterviewProperties();
         properties.setContextCompression(new VoiceInterviewProperties.ContextCompressionConfig());
-        compressor = new VoiceContextCompressor(llmProviderRegistry, properties);
+        compressor = new VoiceContextCompressor(
+            llmProviderRegistry, properties, new DefaultResourceLoader());
     }
 
     private VoiceInterviewMessageEntity turn(int seq, String ai, String user) {
@@ -111,6 +113,24 @@ class VoiceContextCompressorTest {
             assertEquals(20, r.recent().size());
             verify(llmProviderRegistry, times(1)).getPlainChatClient();
         }
+
+        @Test
+        @DisplayName("SUMMARY 模式使用会话选择的 LLM 提供商")
+        void summaryUsesSessionProvider() {
+            properties.getContextCompression().setEnabled(true);
+            properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
+            properties.getContextCompression().setWindowSize(20);
+            properties.getContextCompression().setSummaryBatchSize(10);
+            List<VoiceInterviewMessageEntity> all = turns(35);
+            ChatClient chatClient = mockChatClient("glm", "合并后的摘要");
+
+            VoiceContextCompressor.CompressedHistory result =
+                compressor.compress(all, null, 0, "glm");
+
+            assertEquals("合并后的摘要", result.summary());
+            verify(llmProviderRegistry).getPlainChatClient("glm");
+            verify(llmProviderRegistry, never()).getPlainChatClient();
+        }
     }
 
     @Nested
@@ -142,7 +162,7 @@ class VoiceContextCompressorTest {
         }
 
         @Test
-        @DisplayName("SUMMARY 模式但未达批次数：不调用 LLM，recent 取窗口原文，summary 沿用缓存")
+        @DisplayName("SUMMARY 模式但未达批次数：不调用 LLM，保留所有尚未被摘要覆盖的轮次")
         void summaryNotTriggered() {
             properties.getContextCompression().setEnabled(true);
             properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
@@ -155,7 +175,8 @@ class VoiceContextCompressorTest {
 
             assertEquals("已有摘要", r.summary());
             assertFalse(r.changed());
-            assertEquals(20, r.recent().size());
+            assertEquals(25, r.recent().size());
+            assertEquals(1, r.recent().getFirst().getSequenceNum());
             verify(llmProviderRegistry, never()).getPlainChatClient();
         }
 
@@ -184,7 +205,7 @@ class VoiceContextCompressorTest {
     class FailureAndCompat {
 
         @Test
-        @DisplayName("摘要生成抛异常：降级沿用已有摘要，changed=false，不阻塞主链路")
+        @DisplayName("摘要生成抛异常：降级沿用已有摘要，并保留所有未覆盖轮次")
         void summaryFailureFallback() {
             properties.getContextCompression().setEnabled(true);
             properties.getContextCompression().setMode(VoiceInterviewProperties.Mode.SUMMARY);
@@ -205,7 +226,8 @@ class VoiceContextCompressorTest {
             // 失败降级：summary 仍为已有摘要，且未标记 changed（避免无谓持久化）
             assertEquals("已有摘要", r.summary());
             assertFalse(r.changed());
-            assertEquals(20, r.recent().size());
+            assertEquals(35, r.recent().size());
+            assertEquals(1, r.recent().getFirst().getSequenceNum());
         }
 
         @Test
@@ -239,6 +261,18 @@ class VoiceContextCompressorTest {
         when(spec.call()).thenReturn(callSpec);
         when(callSpec.content()).thenReturn(content);
         when(llmProviderRegistry.getPlainChatClient()).thenReturn(chatClient);
+        return chatClient;
+    }
+
+    private ChatClient mockChatClient(String provider, String content) {
+        ChatClient chatClient = mock(ChatClient.class);
+        ChatClient.ChatClientRequestSpec spec = mock(ChatClient.ChatClientRequestSpec.class);
+        ChatClient.CallResponseSpec callSpec = mock(ChatClient.CallResponseSpec.class);
+        when(chatClient.prompt()).thenReturn(spec);
+        when(spec.user(anyString())).thenReturn(spec);
+        when(spec.call()).thenReturn(callSpec);
+        when(callSpec.content()).thenReturn(content);
+        when(llmProviderRegistry.getPlainChatClient(provider)).thenReturn(chatClient);
         return chatClient;
     }
 }

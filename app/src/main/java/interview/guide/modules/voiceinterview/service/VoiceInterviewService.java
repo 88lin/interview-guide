@@ -299,7 +299,8 @@ public class VoiceInterviewService {
      */
     public List<VoiceInterviewMessageEntity> getConversationHistory(String sessionId) {
         Long sessionIdLong = parseSessionId(sessionId);
-        return messageRepository.findBySessionIdOrderBySequenceNumAsc(sessionIdLong);
+        return messageRepository.findBySessionIdAndMessageTypeNotOrderBySequenceNumAsc(
+            sessionIdLong, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
     }
 
     /**
@@ -312,19 +313,23 @@ public class VoiceInterviewService {
     }
 
     /**
-     * 持久化上下文摘要行。先删除旧的 SUMMARY 行再写入新行（UPSERT 语义，避免重复行）。
+     * 持久化上下文摘要行。在会话行悲观锁内原地更新或创建 SUMMARY 行，避免并发重复。
      * sequenceNum 取 {@code -(coveredTurns + 1)}：负值保证排序最前，且编码已覆盖轮次数。
      */
+    @Transactional(rollbackFor = Exception.class)
     public void saveSummaryRow(String sessionId, String summary, int coveredTurns) {
         Long sessionIdLong = parseSessionId(sessionId);
-        messageRepository.deleteBySessionIdAndMessageType(
-            sessionIdLong, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
-        VoiceInterviewMessageEntity row = VoiceInterviewMessageEntity.builder()
-            .sessionId(sessionIdLong)
-            .messageType(VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY)
-            .aiGeneratedText(summary)
-            .sequenceNum(-(coveredTurns + 1))
-            .build();
+        sessionRepository.findByIdForUpdate(sessionIdLong)
+            .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "会话不存在: " + sessionId));
+        VoiceInterviewMessageEntity row = messageRepository
+            .findFirstBySessionIdAndMessageTypeOrderBySequenceNumAsc(
+                sessionIdLong, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY)
+            .orElseGet(() -> VoiceInterviewMessageEntity.builder()
+                .sessionId(sessionIdLong)
+                .messageType(VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY)
+                .build());
+        row.setAiGeneratedText(summary);
+        row.setSequenceNum(-(coveredTurns + 1));
         messageRepository.save(row);
     }
 
@@ -402,7 +407,7 @@ public class VoiceInterviewService {
         cacheSession(saved);
 
         log.info("Session {} resumed with {} messages in conversation history",
-            sessionId, messageRepository.countBySessionId(sessionIdLong));
+            sessionId, countDialogueMessages(sessionIdLong));
 
         return buildSessionResponse(saved);
     }
@@ -436,7 +441,7 @@ public class VoiceInterviewService {
                 .createdAt(session.getCreatedAt())
                 .updatedAt(session.getUpdatedAt())
                 .actualDuration(session.getActualDuration())
-                .messageCount(messageRepository.countBySessionId(session.getId()))
+                .messageCount(countDialogueMessages(session.getId()))
                 .evaluateStatus(session.getEvaluateStatus() != null ? session.getEvaluateStatus().name() : null)
                 .evaluateError(session.getEvaluateError())
                 .build())
@@ -587,7 +592,12 @@ public class VoiceInterviewService {
      * Get next sequence number for messages in a session
      */
     private int getNextSequenceNum(Long sessionId) {
-        return (int) messageRepository.countBySessionId(sessionId) + 1;
+        return (int) countDialogueMessages(sessionId) + 1;
+    }
+
+    private long countDialogueMessages(Long sessionId) {
+        return messageRepository.countBySessionIdAndMessageTypeNot(
+            sessionId, VoiceInterviewMessageEntity.MESSAGE_TYPE_SUMMARY);
     }
 
     /**

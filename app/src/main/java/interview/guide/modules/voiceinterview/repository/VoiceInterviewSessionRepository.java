@@ -4,7 +4,12 @@ import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionEntity.InterviewPhase;
 import interview.guide.modules.voiceinterview.model.VoiceInterviewSessionStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+
+import jakarta.persistence.LockModeType;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,6 +20,10 @@ import java.util.Optional;
  */
 @Repository
 public interface VoiceInterviewSessionRepository extends JpaRepository<VoiceInterviewSessionEntity, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM VoiceInterviewSessionEntity s WHERE s.id = :sessionId")
+    Optional<VoiceInterviewSessionEntity> findByIdForUpdate(@Param("sessionId") Long sessionId);
 
     /**
      * 根据用户ID查找所有会话，按开始时间倒序

@@ -1,9 +1,12 @@
 package interview.guide.modules.voiceinterview.service;
 
+import com.alibaba.dashscope.audio.qwen_tts_realtime.QwenTtsRealtimeParam;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -75,6 +78,28 @@ class QwenTtsServiceTest {
 
         // Destroy should cleanup resources without error
         assertDoesNotThrow(() -> ttsService.destroy());
+    }
+
+    @Test
+    @DisplayName("WebSocket 握手失败时应在超时内返回")
+    void shouldReturnPromptlyWhenWebSocketHandshakeFails() {
+        String originalUrl = QwenTtsRealtimeParam.baseWebsocketApiUrl;
+        try {
+            QwenTtsRealtimeParam.baseWebsocketApiUrl = "ws://127.0.0.1:1";
+            VoiceInterviewProperties properties = new VoiceInterviewProperties();
+            VoiceInterviewProperties.QwenTtsConfig tts = properties.getQwen().getTts();
+            tts.setModel("qwen3-tts-flash-realtime");
+            tts.setApiKey("test-api-key");
+            properties.setTtsConnectTimeoutSeconds(1);
+            ttsService = new QwenTtsService(properties);
+
+            assertTimeoutPreemptively(
+                Duration.ofSeconds(2),
+                () -> assertEquals(0, ttsService.synthesize("握手失败测试").length)
+            );
+        } finally {
+            QwenTtsRealtimeParam.baseWebsocketApiUrl = originalUrl;
+        }
     }
 
     @Test
