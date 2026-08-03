@@ -86,6 +86,12 @@ class QwenTtsServiceTest {
         String originalUrl = QwenTtsRealtimeParam.baseWebsocketApiUrl;
         try {
             QwenTtsRealtimeParam.baseWebsocketApiUrl = "ws://127.0.0.1:1";
+            VoiceInterviewProperties properties = new VoiceInterviewProperties();
+            VoiceInterviewProperties.QwenTtsConfig tts = properties.getQwen().getTts();
+            tts.setModel("qwen3-tts-flash-realtime");
+            tts.setApiKey("test-api-key");
+            properties.setTtsConnectTimeoutSeconds(1);
+            ttsService = new QwenTtsService(properties);
 
             assertTimeoutPreemptively(
                 Duration.ofSeconds(2),

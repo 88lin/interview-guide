@@ -1065,8 +1065,7 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
                         }
                     } catch (Exception e) {
                         future.cancel(true);
-                        log.warn("[Session: {}] Streaming TTS chunk {} failed: {}",
-                            sessionId, index, e.getMessage());
+                        log.warn("[Session: {}] Streaming TTS chunk {} failed", sessionId, index, e);
                     } finally {
                         futures.remove(index);
                         index++;

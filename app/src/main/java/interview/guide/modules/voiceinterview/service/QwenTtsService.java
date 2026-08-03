@@ -8,6 +8,8 @@ import com.alibaba.dashscope.audio.qwen_tts_realtime.QwenTtsRealtimeParam;
 import com.google.gson.JsonObject;
 import interview.guide.modules.voiceinterview.config.VoiceInterviewProperties;
 import lombok.extern.slf4j.Slf4j;
+import okhttp3.Response;
+import okhttp3.WebSocket;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -15,6 +17,7 @@ import jakarta.annotation.PreDestroy;
 import java.util.Base64;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -62,16 +65,20 @@ public class QwenTtsService {
 
     private Integer volume;
 
+    private int connectTimeoutSeconds;
+
     public QwenTtsService(VoiceInterviewProperties voiceInterviewProperties) {
-        applyTtsConfig(voiceInterviewProperties.getQwen().getTts());
+        applyTtsConfig(voiceInterviewProperties);
     }
 
     public void reload(VoiceInterviewProperties voiceInterviewProperties) {
-        applyTtsConfig(voiceInterviewProperties.getQwen().getTts());
-        log.info("QwenTtsService reloaded: model={}, voice={}", model, voice);
+        applyTtsConfig(voiceInterviewProperties);
+        log.info("QwenTtsService reloaded: model={}, voice={}, connectTimeoutSeconds={}",
+                model, voice, connectTimeoutSeconds);
     }
 
-    private void applyTtsConfig(VoiceInterviewProperties.QwenTtsConfig tts) {
+    private void applyTtsConfig(VoiceInterviewProperties voiceInterviewProperties) {
+        VoiceInterviewProperties.QwenTtsConfig tts = voiceInterviewProperties.getQwen().getTts();
         this.model = tts.getModel();
         this.apiKey = tts.getApiKey();
         this.voice = tts.getVoice();
@@ -81,6 +88,7 @@ public class QwenTtsService {
         this.languageType = tts.getLanguageType();
         this.speechRate = tts.getSpeechRate();
         this.volume = tts.getVolume();
+        this.connectTimeoutSeconds = Math.max(1, voiceInterviewProperties.getTtsConnectTimeoutSeconds());
     }
 
     /**
@@ -159,12 +167,14 @@ public class QwenTtsService {
                 }
             };
 
-            // Create QwenTtsRealtime instance
-            QwenTtsRealtime qwenTtsRealtime = new QwenTtsRealtime(param, callback);
+            AtomicReference<Throwable> connectionFailureRef = new AtomicReference<>();
+            CountDownLatch connectionFinishedLatch = new CountDownLatch(1);
+            QwenTtsRealtime qwenTtsRealtime = createClient(
+                    param, callback, connectionFailureRef, connectionFinishedLatch);
 
             try {
                 // Connect to server (blocking)
-                qwenTtsRealtime.connect();
+                connectWithTimeout(qwenTtsRealtime, connectionFailureRef, connectionFinishedLatch);
 
                 // Configure session with TTS parameters
                 QwenTtsRealtimeConfig config = QwenTtsRealtimeConfig.builder()
@@ -226,6 +236,62 @@ public class QwenTtsService {
         } catch (Exception e) {
             log.error("Failed to synthesize text", e);
             return new byte[0];
+        }
+    }
+
+    private QwenTtsRealtime createClient(
+            QwenTtsRealtimeParam param,
+            QwenTtsRealtimeCallback callback,
+            AtomicReference<Throwable> connectionFailureRef,
+            CountDownLatch connectionFinishedLatch) {
+        return new QwenTtsRealtime(param, callback) {
+            @Override
+            public void onFailure(WebSocket webSocket, Throwable throwable, Response response) {
+                String status = response == null
+                        ? "no HTTP response"
+                        : "HTTP " + response.code() + " " + response.message();
+                connectionFailureRef.compareAndSet(
+                        null,
+                        new IllegalStateException("TTS WebSocket handshake failed: " + status, throwable));
+                connectionFinishedLatch.countDown();
+            }
+        };
+    }
+
+    private void connectWithTimeout(
+            QwenTtsRealtime qwenTtsRealtime,
+            AtomicReference<Throwable> connectionFailureRef,
+            CountDownLatch connectionFinishedLatch) throws Exception {
+        Thread connectThread = Thread.ofVirtual()
+                .name("qwen-tts-connect")
+                .start(() -> {
+                    try {
+                        qwenTtsRealtime.connect();
+                    } catch (Throwable throwable) {
+                        connectionFailureRef.compareAndSet(null, throwable);
+                    } finally {
+                        connectionFinishedLatch.countDown();
+                    }
+                });
+
+        try {
+            boolean completed = connectionFinishedLatch.await(connectTimeoutSeconds, TimeUnit.SECONDS);
+            if (!completed) {
+                throw new TimeoutException(
+                        "TTS WebSocket connection timed out after " + connectTimeoutSeconds + " seconds");
+            }
+        } finally {
+            if (connectThread.isAlive()) {
+                connectThread.interrupt();
+            }
+        }
+
+        Throwable failure = connectionFailureRef.get();
+        if (failure instanceof Exception exception) {
+            throw exception;
+        }
+        if (failure != null) {
+            throw new IllegalStateException("TTS WebSocket connection failed", failure);
         }
     }
 

@@ -53,6 +53,10 @@ public class VoiceInterviewProperties {
      */
     private int ttsTimeoutSeconds = 8;
     /**
+     * TTS WebSocket 建连超时（秒），避免 SDK 握手失败后永久等待。
+     */
+    private int ttsConnectTimeoutSeconds = 5;
+    /**
      * 是否在应用启动时预热开场白音频缓存。默认关闭，避免启动时产生云端 TTS 调用。
      */
     private boolean openingAudioWarmupEnabled = false;
