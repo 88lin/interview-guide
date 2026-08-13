@@ -13,6 +13,7 @@ import org.redisson.config.Config;
 import org.springframework.core.io.ClassPathResource;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -80,7 +81,7 @@ class RateLimitIntegrationTest {
     }
 
     @Test
-    @DisplayName("验证多规则限流：逐条检查，任一规则不足即拒绝")
+    @DisplayName("验证多规则限流：任一规则不足时不扣减其他规则")
     void testMultiRule() {
         String globalKey = "ratelimit:test:multi:global";
         String ipKey = "ratelimit:test:multi:ip";
@@ -92,12 +93,12 @@ class RateLimitIntegrationTest {
         redissonClient.getBucket(ipKey + ":value", StringCodec.INSTANCE).set("1");
 
         // 第一次请求：两条规则都通过
-        assertEquals(1L, executeLuaScript(globalKey, globalMax));
-        assertEquals(1L, executeLuaScript(ipKey, ipMax));
+        assertEquals(1L, executeLuaScript(List.of(globalKey, ipKey), List.of(globalMax, ipMax)));
 
-        // 第二次请求：全局规则通过，IP规则拒绝（模拟短路）
-        assertEquals(1L, executeLuaScript(globalKey, globalMax));
-        assertEquals(0L, executeLuaScript(ipKey, ipMax));
+        // 第二次请求：IP规则拒绝，全局规则不能被误扣
+        assertEquals(-2L, executeLuaScript(List.of(globalKey, ipKey), List.of(globalMax, ipMax)));
+        assertEquals("9", redissonClient.getBucket(globalKey + ":value", StringCodec.INSTANCE).get());
+        assertEquals("0", redissonClient.getBucket(ipKey + ":value", StringCodec.INSTANCE).get());
     }
 
     @Test
@@ -120,24 +121,29 @@ class RateLimitIntegrationTest {
     }
 
     private long executeLuaScript(String key, long maxCount) {
+        return executeLuaScript(Collections.singletonList(key), Collections.singletonList(maxCount));
+    }
+
+    private long executeLuaScript(List<String> keys, List<Long> maxCounts) {
         RScript script = redissonClient.getScript(StringCodec.INSTANCE);
 
-        Object[] args = {
-                String.valueOf(System.currentTimeMillis()),
-                String.valueOf(1),
-                String.valueOf(1000),
-                String.valueOf(maxCount),
-                UUID.randomUUID().toString()
-        };
+        List<Object> args = new ArrayList<>(3 + keys.size() * 3);
+        args.add(String.valueOf(System.currentTimeMillis()));
+        args.add(UUID.randomUUID().toString());
+        args.add(String.valueOf(keys.size()));
 
-        List<Object> keysList = Collections.singletonList(key);
+        for (Long maxCount : maxCounts) {
+            args.add(String.valueOf(1));
+            args.add(String.valueOf(1000));
+            args.add(String.valueOf(maxCount));
+        }
 
         Object result = script.evalSha(
                 RScript.Mode.READ_WRITE,
                 luaScriptSha,
                 RScript.ReturnType.VALUE,
-                keysList,
-                args
+                new ArrayList<>(keys),
+                args.toArray()
         );
 
         if (result instanceof Number) {

@@ -20,13 +20,13 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * 限流 AOP 切面
- * 支持可重复注解，逐条执行独立的限流规则，任一规则不通过即拒绝
+ * 支持可重复注解，同一方法上的多条限流规则在一次 Lua 调用中原子检查和扣减
  */
 @Slf4j
 @Aspect
@@ -75,30 +75,34 @@ public class RateLimitAspect {
         long nowMs = System.currentTimeMillis();
         String requestId = UUID.randomUUID().toString();
 
+        List<Object> keysList = new ArrayList<>(rules.length);
+        List<Object> args = new ArrayList<>(3 + rules.length * 3);
+        List<RateLimitContext> contexts = new ArrayList<>(rules.length);
+        args.add(String.valueOf(nowMs));
+        args.add(requestId);
+        args.add(String.valueOf(rules.length));
+
         for (RateLimit rule : rules) {
             long intervalMs = calculateIntervalMs(rule.interval(), rule.timeUnit());
             String key = generateKey(className, methodName, rule.dimension());
 
-            Long result = executeRateLimitScript(key, nowMs, requestId, intervalMs, rule.count());
+            keysList.add(key);
+            args.add(String.valueOf(1));
+            args.add(String.valueOf(intervalMs));
+            args.add(String.valueOf(rule.count()));
+            contexts.add(new RateLimitContext(rule, key));
+        }
 
-            if (result == null || result == 0) {
-                return handleRateLimitExceeded(joinPoint, rule, key);
-            }
+        Long result = executeRateLimitScript(keysList, args.toArray());
+        if (result == null || result <= 0) {
+            RateLimitContext failedContext = resolveFailedContext(result, contexts);
+            return handleRateLimitExceeded(joinPoint, failedContext.rule(), failedContext.key());
         }
 
         return joinPoint.proceed();
     }
 
-    private Long executeRateLimitScript(String key, long nowMs, String requestId, long intervalMs, double count) {
-        List<Object> keysList = Collections.singletonList(key);
-        Object[] args = {
-                String.valueOf(nowMs),
-                String.valueOf(1),
-                String.valueOf(intervalMs),
-                String.valueOf(count),
-                requestId
-        };
-
+    private Long executeRateLimitScript(List<Object> keysList, Object[] args) {
         try {
             Object resultObj = rScript.evalSha(
                     RScript.Mode.READ_WRITE,
@@ -123,6 +127,16 @@ public class RateLimitAspect {
             }
             throw e;
         }
+    }
+
+    private RateLimitContext resolveFailedContext(Long result, List<RateLimitContext> contexts) {
+        if (result != null && result < 0) {
+            int failedIndex = (int) Math.min(Math.abs(result) - 1, contexts.size() - 1L);
+            if (failedIndex >= 0) {
+                return contexts.get(failedIndex);
+            }
+        }
+        return contexts.get(0);
     }
 
     private long calculateIntervalMs(long interval, RateLimit.TimeUnit unit) {
@@ -260,5 +274,8 @@ public class RateLimitAspect {
         }
 
         return "anonymous";
+    }
+
+    private record RateLimitContext(RateLimit rule, String key) {
     }
 }
