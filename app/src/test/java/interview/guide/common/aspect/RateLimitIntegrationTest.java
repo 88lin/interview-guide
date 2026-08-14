@@ -2,7 +2,6 @@ package interview.guide.common.aspect;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.redisson.Redisson;
@@ -11,6 +10,10 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.config.Config;
 import org.springframework.core.io.ClassPathResource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.utility.DockerImageName;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -18,27 +21,23 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * 限流功能集成测试
  *
- * <p>需要 Redis 服务运行。
- *
- * <p>运行方式：
- * <pre>
- * # 启动 Redis
- * docker run -d -p 6379:6379 redis:alpine
- *
- * # 取消 @Disabled 注解后运行
- * ./gradlew test --tests "RateLimitIntegrationTest"
- * </pre>
+ * <p>通过 Testcontainers 启动独立 Redis，避免依赖本地固定端口和残留数据。
  */
-@DisplayName("限流功能集成测试（需要 Redis）")
-@Disabled
+@DisplayName("限流功能集成测试")
+@Testcontainers(disabledWithoutDocker = true)
 class RateLimitIntegrationTest {
 
-    private static final String REDIS_ADDRESS = "redis://localhost:6379";
+    private static final int REDIS_PORT = 6379;
+
+    @Container
+    private static final GenericContainer<?> REDIS = new GenericContainer<>(
+            DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(REDIS_PORT);
 
     private RedissonClient redissonClient;
     private String luaScript;
@@ -51,8 +50,7 @@ class RateLimitIntegrationTest {
 
         Config config = new Config();
         config.useSingleServer()
-                .setAddress(REDIS_ADDRESS)
-                .setDatabase(1)
+                .setAddress("redis://" + REDIS.getHost() + ":" + REDIS.getMappedPort(REDIS_PORT))
                 .setConnectionPoolSize(5)
                 .setConnectionMinimumIdleSize(1);
 
@@ -77,7 +75,7 @@ class RateLimitIntegrationTest {
         assertEquals(1L, executeLuaScript(key, maxCount));
 
         // 第三次请求应被拒绝
-        assertEquals(0L, executeLuaScript(key, maxCount));
+        assertEquals(-1L, executeLuaScript(key, maxCount));
     }
 
     @Test
@@ -102,6 +100,26 @@ class RateLimitIntegrationTest {
     }
 
     @Test
+    @DisplayName("验证原子回收：后续规则拒绝时不删除前一规则的过期记录")
+    void testExpiredPermitsRemainWhenLaterRuleRejects() {
+        String globalKey = "ratelimit:test:expired:global";
+        String ipKey = "ratelimit:test:expired:ip";
+
+        redissonClient.getBucket(globalKey + ":value", StringCodec.INSTANCE).set("0");
+        redissonClient.getScoredSortedSet(globalKey + ":permits", StringCodec.INSTANCE)
+                .add(System.currentTimeMillis() - 2_000, "expired-request:1");
+        redissonClient.getBucket(ipKey + ":value", StringCodec.INSTANCE).set("0");
+
+        assertEquals(-2L, executeLuaScript(List.of(globalKey, ipKey), List.of(1L, 1L)));
+        assertEquals("0", redissonClient.getBucket(globalKey + ":value", StringCodec.INSTANCE).get());
+        assertEquals(1, redissonClient.getScoredSortedSet(
+                globalKey + ":permits", StringCodec.INSTANCE).size());
+
+        redissonClient.getBucket(ipKey + ":value", StringCodec.INSTANCE).set("1");
+        assertEquals(1L, executeLuaScript(List.of(globalKey, ipKey), List.of(1L, 1L)));
+    }
+
+    @Test
     @DisplayName("验证独立计数：不同维度拥有独立的令牌池")
     void testIndependentCountPerDimension() {
         String globalKey = "ratelimit:test:independent:global";
@@ -114,7 +132,7 @@ class RateLimitIntegrationTest {
         // 全局维度耗尽
         assertEquals(1L, executeLuaScript(globalKey, 2));
         assertEquals(1L, executeLuaScript(globalKey, 2));
-        assertEquals(0L, executeLuaScript(globalKey, 2));
+        assertEquals(-1L, executeLuaScript(globalKey, 2));
 
         // IP维度仍有令牌（证明独立计数）
         assertEquals(1L, executeLuaScript(ipKey, 5));

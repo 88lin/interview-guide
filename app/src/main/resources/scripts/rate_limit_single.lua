@@ -18,7 +18,7 @@ local current_values = {}
 local permit_values = {}
 local intervals = {}
 
--- 第一阶段：回收过期令牌并检查所有维度。任一维度不满足时，不扣任何新令牌。
+-- 第一阶段：只读取并计算可用令牌。任一维度不满足时，不修改任何限流状态。
 for i = 1, rule_count do
     local arg_index = 4 + (i - 1) * 3
     local key = KEYS[i]
@@ -39,8 +39,6 @@ for i = 1, rule_count do
                 expired_count = expired_count + p
             end
         end
-
-        redis.call("zremrangebyscore", permits_key, 0, now_ms - interval)
 
         if expired_count > 0 then
             current_val = math.min(max_tokens, current_val + expired_count)
@@ -66,6 +64,7 @@ for i = 1, rule_count do
     local interval = intervals[i]
 
     local permit_record = request_id .. ":" .. i .. ":" .. permits
+    redis.call("zremrangebyscore", permits_key, 0, now_ms - interval)
     redis.call("zadd", permits_key, now_ms, permit_record)
     redis.call("set", value_key, current_val - permits)
 
