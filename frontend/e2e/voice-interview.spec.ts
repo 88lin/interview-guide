@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 const SESSION_ID = 42;
 const USER_SUBTITLE = '我负责订单系统的幂等设计。';
 const AI_FOLLOW_UP = '请具体说明你如何处理重复提交。';
+const NEXT_USER_SUBTITLE = '当前这一轮我会使用唯一索引保证幂等。';
 
 test.describe('语音面试', () => {
   test.beforeEach(async ({ page }) => {
@@ -32,6 +33,8 @@ test.describe('语音面试', () => {
 
         constructor(_url: string) {
           super();
+          (window as Window & { __voiceTestReceive?: (payload: unknown) => void })
+            .__voiceTestReceive = payload => this.receive(payload);
           window.setTimeout(() => {
             this.readyState = FakeWebSocket.OPEN;
             this.onopen?.(new Event('open'));
@@ -130,6 +133,41 @@ test.describe('语音面试', () => {
       (window as Window & { __voiceTestSentMessages?: { type: string }[] }).__voiceTestSentMessages
         ?.some(message => message.type === 'audio') ?? false,
     )).toBe(true);
+  });
+
+  test('提交后迟到的上一轮字幕不会污染下一轮回答', async ({ page }) => {
+    await page.goto('/voice-interview?skillId=java-backend&duration=15');
+
+    const recordButton = page.getByTestId('voice-recorder-toggle');
+    await expect(recordButton).toBeEnabled();
+    await recordButton.click();
+    await expect(page.getByTestId('voice-current-user-text')).toHaveText(USER_SUBTITLE);
+
+    await page.getByTestId('voice-submit-answer').click();
+    await expect(page.getByTestId('voice-current-ai-text')).toHaveText(AI_FOLLOW_UP);
+    await page.evaluate((lateText) => {
+      (window as Window & { __voiceTestReceive?: (payload: unknown) => void })
+        .__voiceTestReceive?.({ type: 'subtitle', text: lateText, isFinal: false });
+    }, USER_SUBTITLE);
+
+    await expect(page.getByTestId('voice-current-ai-text')).not.toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('voice-current-user-text')).not.toBeVisible();
+
+    await page.evaluate((nextText) => {
+      (window as Window & { __voiceTestReceive?: (payload: unknown) => void })
+        .__voiceTestReceive?.({ type: 'subtitle', text: nextText, isFinal: false });
+    }, NEXT_USER_SUBTITLE);
+    await expect(page.getByTestId('voice-current-user-text')).toHaveText(NEXT_USER_SUBTITLE);
+    await expect(page.getByTestId('voice-submit-answer')).toBeEnabled();
+    await page.getByTestId('voice-submit-answer').click();
+
+    await expect.poll(async () => page.evaluate((nextText) =>
+      (window as Window & {
+        __voiceTestSentMessages?: { type: string; action?: string; data?: { text?: string } }[];
+      }).__voiceTestSentMessages?.some(message =>
+        message.type === 'control' && message.action === 'submit' && message.data?.text === nextText
+      ) ?? false,
+    NEXT_USER_SUBTITLE)).toBe(true);
   });
 
   test('结束面试后返回面试记录页', async ({ page }) => {

@@ -554,16 +554,16 @@ public class VoiceInterviewWebSocketHandler extends TextWebSocketHandler impleme
             return;
         }
 
-        if (!isFinalSegment) {
-            state.markSttActivity();
-            sendSubtitle(session, state.getMergeBufferPreviewWithPartial(recognizedText), false);
+        // 用户已提交或 AI 正在回答时，丢弃上一轮迟到的 partial/final，防止污染下一轮字幕。
+        if (state.isProcessing().get() || state.isAiSpeakingOrCooldown()) {
+            log.debug("Discarding late STT result for session {}, final={}: {}",
+                sessionId, isFinalSegment, recognizedText);
             return;
         }
 
-        // 用户已提交、LLM 正在处理时，丢弃迟到的 STT 定稿段，防止污染下一轮 mergeBuffer
-        if (state.isProcessing().get()) {
-            log.debug("Discarding late STT final segment during processing for session {}: {}",
-                sessionId, recognizedText);
+        if (!isFinalSegment) {
+            state.markSttActivity();
+            sendSubtitle(session, state.getMergeBufferPreviewWithPartial(recognizedText), false);
             return;
         }
 
