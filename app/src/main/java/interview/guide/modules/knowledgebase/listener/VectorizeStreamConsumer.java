@@ -186,7 +186,7 @@ public class VectorizeStreamConsumer extends AbstractStreamConsumer<VectorizeStr
         vectorService.vectorizeAndStore(kbId, content, payload.attemptId(), () -> {
             // 分块完成与每个 Embedding 批次后的节流心跳
             throttledEmbeddingHeartbeat(payload);
-        });
+        }, new KnowledgeBaseVectorService.SourceInfo(kb.getName(), kb.getOriginalFilename(), kb.getFileHash()));
     }
 
     private boolean isBlank(String value) {

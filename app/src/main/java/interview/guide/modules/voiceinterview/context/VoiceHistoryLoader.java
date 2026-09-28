@@ -90,7 +90,7 @@ public class VoiceHistoryLoader {
     java.util.Collections.reverse(recent);
 
     // 4. 边界之后、最近窗口之前的待摘要段（升序，最多一个批次）。
-    //    无 SUMMARY 行的旧长会话同样适用（covered 取 0，每轮 window+batch 增量追上，无需全量迁移）
+    //    无 SUMMARY 行时 covered 取 0；每轮只推进一个批次，大量历史积压不能靠一次加载补齐。
     Integer windowMin = recent.isEmpty() ? null : recent.getFirst().getSequenceNum();
     List<VoiceInterviewMessageEntity> pending = List.of();
     int after = coveredSequenceNum != null ? coveredSequenceNum : 0;

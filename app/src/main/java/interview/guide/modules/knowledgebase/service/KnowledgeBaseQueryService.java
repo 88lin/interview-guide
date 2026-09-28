@@ -148,9 +148,7 @@ public class KnowledgeBaseQueryService {
                 return NO_RESULT_RESPONSE;
             }
 
-            String context = relevantDocs.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n---\n\n"));
+            String context = RagSources.context(relevantDocs);
             String systemPrompt = buildSystemPrompt();
             String userPrompt = buildUserPrompt(context, question);
 
@@ -176,7 +174,7 @@ public class KnowledgeBaseQueryService {
                 System.nanoTime() - totalStart);
 
             log.info("知识库问答完成: kbIds={}", knowledgeBaseIds);
-            return answer;
+            return rejected ? answer : answer + RagSources.footer(relevantDocs);
 
         } catch (Exception e) {
             log.error("知识库问答失败: {}", ErrorLogSanitizer.summarize(e),
@@ -296,9 +294,7 @@ public class KnowledgeBaseQueryService {
             }
 
             // 3. 构建上下文
-            String context = relevantDocs.stream()
-                    .map(Document::getText)
-                    .collect(Collectors.joining("\n\n---\n\n"));
+            String context = RagSources.context(relevantDocs);
 
             log.debug("检索到 {} 个相关文档片段", relevantDocs.size());
 
@@ -321,6 +317,14 @@ public class KnowledgeBaseQueryService {
             StringBuilder collectedAnswer = new StringBuilder();
             return normalizeStreamOutput(responseFlux)
                 .doOnNext(collectedAnswer::append)
+                .concatWith(Flux.defer(() -> {
+                    if (NO_RESULT_RESPONSE.equals(collectedAnswer.toString())) {
+                        return Flux.empty();
+                    }
+                    String footer = RagSources.footer(relevantDocs);
+                    collectedAnswer.append(footer);
+                    return Flux.just(footer);
+                }))
                 .doOnComplete(() -> {
                     // error 已记录（onErrorResume 转 Flux.just 后仍会走到 complete）时跳过
                     if (!resultRecorded.compareAndSet(false, true)) {

@@ -52,6 +52,7 @@ public class RagMetrics {
       Timer.builder(STAGE_DURATION)
           .tag("stage", stage)
           .tag("result", result)
+          .publishPercentileHistogram()
           .register(registry)
           .record(java.time.Duration.ofNanos(durationNanos));
     }

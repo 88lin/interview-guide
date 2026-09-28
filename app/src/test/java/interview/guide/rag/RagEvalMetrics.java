@@ -37,6 +37,14 @@ public final class RagEvalMetrics {
     }
     m.put("samples", results.size());
     m.put("harnessErrorCount", harnessErrors);
+    m.put("validSamples", valid.size());
+    m.put("rewriteChangedSamples", valid.stream()
+        .filter(r -> r.get("question") instanceof String original
+            && r.get("rewrittenQuestion") instanceof String rewritten
+            && !original.equals(rewritten)).count());
+    m.put("multiQuerySamples", valid.stream()
+        .filter(r -> r.get("attemptedQueries") instanceof List<?> queries
+            && queries.size() > 1).count());
     List<Map<String, Object>> inScope = valid.stream()
         .filter(r -> !Boolean.TRUE.equals(r.get("shouldReject"))).toList();
     if (!inScope.isEmpty()) {
@@ -53,12 +61,12 @@ public final class RagEvalMetrics {
           .mapToDouble(r -> r.get("evidenceRecall") instanceof Number n ? n.doubleValue() : 0.0)
           .average().orElse(0)));
     }
-    putStagePercentiles(m, "retrievalMsP50", "retrievalMsP95", valid, "retrievalMs");
-    putStagePercentiles(m, "rewriteMsP50", "rewriteMsP95", valid, "rewriteMs");
+    putStagePercentiles(m, "retrieval", valid, "retrievalMs");
+    putStagePercentiles(m, "rewrite", valid, "rewriteMs");
     List<Map<String, Object>> generation = valid.stream()
         .filter(r -> Boolean.TRUE.equals(r.get("evaluateGeneration"))).toList();
-    putStagePercentiles(m, "generationMsP50", "generationMsP95", generation, "generationMs");
-    putStagePercentiles(m, "endToEndMsP50", "endToEndMsP95", generation, "totalMs");
+    putStagePercentiles(m, "generation", generation, "generationMs");
+    putStagePercentiles(m, "endToEnd", generation, "totalMs");
     return m;
   }
 
@@ -95,6 +103,7 @@ public final class RagEvalMetrics {
     m.put("fp", fp);
     m.put("tn", tn);
     int total = tp + fn + fp + tn;
+    m.put("samples", total);
     m.put("accuracy", total == 0 ? 0 : round((double) (tp + tn) / total));
     m.put("precision", tp + fp == 0 ? 0 : round((double) tp / (tp + fp)));
     m.put("recall", tp + fn == 0 ? 0 : round((double) tp / (tp + fn)));
@@ -104,16 +113,17 @@ public final class RagEvalMetrics {
     return m;
   }
 
-  private static void putStagePercentiles(Map<String, Object> m, String p50Key, String p95Key,
+  private static void putStagePercentiles(Map<String, Object> m, String stage,
                                           List<Map<String, Object>> results, String field) {
     List<Long> values = results.stream()
         .map(r -> r.get(field))
         .filter(Objects::nonNull)
         .map(v -> ((Number) v).longValue())
         .sorted().toList();
+    m.put(stage + "Samples", values.size());
     if (!values.isEmpty()) {
-      m.put(p50Key, percentile(values, 0.50));
-      m.put(p95Key, percentile(values, 0.95));
+      m.put(stage + "MsP50", percentile(values, 0.50));
+      m.put(stage + "MsP95", percentile(values, 0.95));
     }
   }
 

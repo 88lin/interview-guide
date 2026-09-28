@@ -67,6 +67,79 @@ class KnowledgeBaseVectorServiceTest {
 
     // ==================== 共享辅助方法 ====================
 
+    @Test
+    @DisplayName("模拟按 ID upsert：重新向量化写入中和失败清理后，旧正式向量仍在")
+    void failedRevectorizationDoesNotOverwriteActiveRows() {
+        Map<String, Document> rows = new HashMap<>();
+        doAnswer(invocation -> {
+            List<Document> batch = invocation.getArgument(0);
+            batch.forEach(doc -> rows.put(doc.getId(), doc));
+            return null;
+        }).when(vectorStore).add(anyList());
+        doAnswer(invocation -> {
+            String job = invocation.getArgument(1);
+            rows.values().stream().filter(doc -> job.equals(doc.getMetadata().get("kb_vector_job_id")))
+                .forEach(doc -> {
+                    doc.getMetadata().put("kb_id", "1");
+                    doc.getMetadata().remove("kb_vector_job_id");
+                });
+            return 0;
+        }).when(vectorRepository).promoteVectorJob(eq(1L), anyString());
+        doAnswer(invocation -> {
+            String job = invocation.getArgument(0);
+            rows.values().removeIf(doc -> job.equals(doc.getMetadata().get("kb_vector_job_id")));
+            return 0;
+        }).when(vectorRepository).deleteByVectorJobId(anyString());
+        String content = generateLongContent(10);
+        var source = new KnowledgeBaseVectorService.SourceInfo("手册", "guide.md", "same-hash");
+        vectorService.vectorizeAndStore(1L, content, null, () -> {}, source);
+        Map<String, Document> activeRows = Map.copyOf(rows);
+        assertThat(activeRows).isNotEmpty();
+        clearInvocations(vectorRepository);
+        doAnswer(invocation -> {
+            List<Document> batch = invocation.getArgument(0);
+            batch.forEach(doc -> rows.put(doc.getId(), doc));
+            assertThat(rows.keySet()).containsAll(activeRows.keySet());
+            activeRows.forEach((id, doc) -> assertThat(rows.get(id).getMetadata()).containsEntry("kb_id", "1"));
+            throw new IllegalStateException("模拟部分批次写入后失败");
+        }).when(vectorStore).add(anyList());
+
+        assertThatThrownBy(() -> vectorService.vectorizeAndStore(1L, content, null, () -> {}, source))
+            .isInstanceOf(BusinessException.class);
+        assertThat(rows).containsExactlyInAnyOrderEntriesOf(activeRows);
+        verify(vectorRepository, never()).deleteByKnowledgeBaseId(1L);
+        verify(vectorRepository, never()).promoteVectorJob(eq(1L), anyString());
+    }
+
+    @Test
+    @DisplayName("相同文件配置的来源标识稳定，跨知识库和任务的向量 ID 不复用")
+    void stableSourcesWithoutStableDocumentIds() {
+        List<Document> added = new ArrayList<>();
+        doAnswer(invocation -> { added.addAll(invocation.getArgument(0)); return null; })
+            .when(vectorStore).add(anyList());
+        String content = generateLongContent(2);
+        var source = new KnowledgeBaseVectorService.SourceInfo("手册", "guide.md", "same-file-hash");
+        vectorService.vectorizeAndStore(1L, content, null, () -> {}, source);
+        List<Document> first = List.copyOf(added);
+        added.clear();
+        vectorService.vectorizeAndStore(2L, content, null, () -> {}, source);
+        assertThat(added).hasSameSizeAs(first);
+        for (int i = 0; i < added.size(); i++) {
+            assertThat(added.get(i).getId()).isNotEqualTo(first.get(i).getId());
+            assertThat(added.get(i).getMetadata()).containsEntry("source_name", "手册")
+                .containsEntry("source_filename", "guide.md").containsEntry("chunk_index", i)
+                .containsEntry("total_chunks", added.size())
+                .containsEntry("source_id", first.get(i).getMetadata().get("source_id"));
+        }
+        String originalSource = first.getFirst().getMetadata().get("source_id").toString();
+        added.clear();
+        var changed = new KnowledgeBaseVectorProperties();
+        changed.setChunkSize(400);
+        new KnowledgeBaseVectorService(vectorStore, vectorRepository, null, changed, persistenceService)
+            .vectorizeAndStore(1L, content, null, () -> {}, source);
+        assertThat(added.getFirst().getMetadata().get("source_id")).isNotEqualTo(originalSource);
+    }
+
     /**
      * 生成足够长的内容，确保 TokenTextSplitter 产生 chunks
      * TokenTextSplitter 默认配置下，需要较长的文本才会分块

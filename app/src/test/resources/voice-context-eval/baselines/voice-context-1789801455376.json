@@ -1,0 +1,92 @@
+{
+  "runAt" : "2026-09-19T07:04:15.375187Z",
+  "scope" : "synthetic-v1, real provider; not production E2E or answer quality evaluation",
+  "model" : "qwen3.5-flash",
+  "temperature" : 0.2,
+  "turns" : 60,
+  "fixtureMd5" : "1cf0f6d0375741e043c69f34cb74cec7",
+  "summaryPromptMd5" : "8dfe7dfe4a18d76504aa1bb945dbbca9",
+  "config" : {
+    "mode" : "SUMMARY",
+    "summaryBatchSize" : 10,
+    "maxHistoryChars" : 12000,
+    "windowSize" : 20,
+    "maxSummaryChars" : 4000
+  },
+  "beforeHistoryChars" : 34690,
+  "afterHistoryChars" : 11776,
+  "charDefinition" : "VoiceHistoryLoader format including summary label and newline separators",
+  "compressionMs" : 34029.154333,
+  "retainedTurns" : 20,
+  "coveredTurns" : 40,
+  "calls" : [ {
+    "latencyMs" : 33972.386709,
+    "promptTokens" : 14078,
+    "completionTokens" : 2698,
+    "totalTokens" : 16776,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 23262,
+    "requestMd5" : "1c1839178850347d0abe7905b5e6f78d",
+    "phase" : "summary"
+  }, {
+    "latencyMs" : 75815.781875,
+    "promptTokens" : 21017,
+    "completionTokens" : 6552,
+    "totalTokens" : 27569,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 34747,
+    "requestMd5" : "e3b87609607ce0a129f31c584aa8dc9a",
+    "phase" : "before",
+    "pair" : 1
+  }, {
+    "latencyMs" : 54370.581042,
+    "promptTokens" : 7159,
+    "completionTokens" : 4322,
+    "totalTokens" : 11481,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 11833,
+    "requestMd5" : "bc9becd1d23b1c93183a58414b0d0415",
+    "phase" : "after",
+    "pair" : 1
+  }, {
+    "latencyMs" : 54769.2115,
+    "promptTokens" : 7159,
+    "completionTokens" : 4587,
+    "totalTokens" : 11746,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 11833,
+    "requestMd5" : "bc9becd1d23b1c93183a58414b0d0415",
+    "phase" : "after",
+    "pair" : 2
+  }, {
+    "latencyMs" : 50349.931125,
+    "promptTokens" : 21017,
+    "completionTokens" : 3890,
+    "totalTokens" : 24907,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 34747,
+    "requestMd5" : "e3b87609607ce0a129f31c584aa8dc9a",
+    "phase" : "before",
+    "pair" : 2
+  }, {
+    "latencyMs" : 40355.431208,
+    "promptTokens" : 21017,
+    "completionTokens" : 2936,
+    "totalTokens" : 23953,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 34747,
+    "requestMd5" : "e3b87609607ce0a129f31c584aa8dc9a",
+    "phase" : "before",
+    "pair" : 3
+  }, {
+    "latencyMs" : 36216.48625,
+    "promptTokens" : 7159,
+    "completionTokens" : 2772,
+    "totalTokens" : 9931,
+    "responseModel" : "qwen3.5-flash",
+    "requestChars" : 11833,
+    "requestMd5" : "bc9becd1d23b1c93183a58414b0d0415",
+    "phase" : "after",
+    "pair" : 3
+  } ]
+}

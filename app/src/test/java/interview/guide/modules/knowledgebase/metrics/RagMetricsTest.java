@@ -3,6 +3,8 @@ package interview.guide.modules.knowledgebase.metrics;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseQueryProperties;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.prometheusmetrics.PrometheusConfig;
+import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,11 +29,33 @@ class RagMetricsTest {
 
   @SuppressWarnings("unchecked")
   private RagMetrics metrics(boolean enabled) {
+    return metrics(enabled, registry);
+  }
+
+  @SuppressWarnings("unchecked")
+  private RagMetrics metrics(boolean enabled, MeterRegistry targetRegistry) {
     ObjectProvider<MeterRegistry> provider = mock(ObjectProvider.class);
-    when(provider.getIfAvailable()).thenReturn(registry);
+    when(provider.getIfAvailable()).thenReturn(targetRegistry);
     KnowledgeBaseQueryProperties properties = new KnowledgeBaseQueryProperties();
     properties.setMetricsEnabled(enabled);
     return new RagMetrics(provider, properties);
+  }
+
+  @Test
+  @DisplayName("Prometheus 导出阶段耗时桶，支持文章中的 histogram_quantile 查询")
+  void exportsStageDurationHistogram() {
+    PrometheusMeterRegistry prometheus = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
+    try {
+      RagMetrics metrics = metrics(true, prometheus);
+      metrics.recordStageDuration("retrieve", "success", 10_000_000L);
+
+      assertThat(prometheus.scrape())
+          .contains("app_rag_stage_duration_seconds_bucket{")
+          .contains("le=\"+Inf\"")
+          .contains("stage=\"retrieve\"");
+    } finally {
+      prometheus.close();
+    }
   }
 
   @Test

@@ -53,6 +53,21 @@ class VoiceContextCompressorTest {
                 .build();
     }
 
+    @Test
+    @DisplayName("真实摘要模板注入旧摘要和新增轮次，不把占位符原文发送给模型")
+    void summaryPromptContainsActualHistory() {
+        ChatClient client = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        when(llmProviderRegistry.getPlainChatClient()).thenReturn(client);
+        when(client.prompt().user(anyString()).call().content()).thenReturn("合并后的摘要");
+        var result = compressor.compress(turns(35), "旧摘要中的项目事实", 0);
+        var captor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(client.prompt(), atLeastOnce()).user(captor.capture());
+        assertThat(captor.getAllValues()).anySatisfy(prompt -> assertThat(prompt)
+            .contains("旧摘要中的项目事实", "面试官问题0", "候选人回答14")
+            .doesNotContain("<previousSummary>", "<newTurns>", "{previousSummary}", "{newTurns}", "候选人回答15"));
+        assertThat(result.summary()).isEqualTo("合并后的摘要");
+    }
+
     private List<VoiceInterviewMessageEntity> turns(int n) {
         List<VoiceInterviewMessageEntity> list = new ArrayList<>();
         for (int i = 0; i < n; i++) {

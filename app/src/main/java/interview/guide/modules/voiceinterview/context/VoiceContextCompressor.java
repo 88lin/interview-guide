@@ -70,11 +70,21 @@ public class VoiceContextCompressor {
             return new CompressedHistory(null, turns, turns.size(), false);
         }
 
-        // NONE 模式 / 未达到窗口大小：不摘要、不裁窗口，但仍执行字符硬预算
-        if (cfg.getMode() == VoiceInterviewProperties.Mode.NONE
-                || turns.size() <= cfg.getWindowSize()) {
+        // NONE 模式不摘要、不裁窗口，但仍执行字符硬预算。
+        if (cfg.getMode() == VoiceInterviewProperties.Mode.NONE) {
             List<VoiceInterviewMessageEntity> budgeted = applyCharBudget(null, turns);
             return new CompressedHistory(null, budgeted, 0, false);
+        }
+
+        if (cfg.getMode() == VoiceInterviewProperties.Mode.WINDOW) {
+            int start = Math.max(0, turns.size() - cfg.getWindowSize());
+            return new CompressedHistory(null, applyCharBudget(null, turns.subList(start, turns.size())), 0, false);
+        }
+
+        // Loader 已排除摘要覆盖过的消息；局部列表在窗口内不代表没有旧摘要。
+        if (turns.size() <= cfg.getWindowSize()) {
+            String summary = truncateSummary(VoiceInterviewMessageEntity.trimToNull(cachedSummary));
+            return new CompressedHistory(summary, applyCharBudget(summary, turns), 0, false);
         }
 
         int total = turns.size();
@@ -97,12 +107,11 @@ public class VoiceContextCompressor {
             if (newSummary == null) {
                 // 摘要生成失败：有旧摘要保留旧摘要，无旧摘要降级 WINDOW；不允许恢复为全量历史
                 summaryFailed = true;
-            } else if (!newSummary.equals(cachedSummary)) {
+            } else {
+                // 正文相同也表示本批已处理；changed 同时表示覆盖边界需要持久化。
                 summary = newSummary;
                 effectiveCoveredTurns = earlyCount;
                 changed = true;
-            } else {
-                summary = newSummary;
             }
         }
 

@@ -57,13 +57,6 @@ public class LlmProviderRegistry {
     private final ToolCallingManager toolCallingManager;
     private final ObservationRegistry observationRegistry;
     private final ToolCallback interviewSkillsToolCallback;
-    private static final Map<String, String> RECOMMENDED_EMBEDDING_MODELS = Map.of(
-        "dashscope", "text-embedding-v3",
-        "glm", "embedding-3",
-        "zhipu", "embedding-3",
-        "baidu", "Embedding-V1",
-        "minimax", "embo-01"
-    );
 
     @Autowired
     public LlmProviderRegistry(
@@ -116,8 +109,9 @@ public class LlmProviderRegistry {
     }
 
     /**
-     * 获取默认 provider 的不带 SkillsTool 的 ChatClient，用于纯粹的摘要 / 结构化文本场景。
-     * 与 {@link #getDefaultChatClient()} 的区别在于不挂 Skill 工具与记忆 Advisor，避免无关上下文干扰。
+     * 获取默认 Provider 的 Plain ChatClient，当前用于知识库查询。
+     * 与 {@link #getDefaultChatClient()} 的区别在于不注册工具回调、ToolCall、Memory 或 Logger Advisor，
+     * 仅按配置注册 SafeGuardAdvisor。
      */
     public ChatClient getPlainChatClient() {
         return getPlainChatClient(resolveDefaultChatProviderId());
@@ -132,8 +126,12 @@ public class LlmProviderRegistry {
     }
 
     /**
-     * 获取不带 SkillsTool 的 ChatClient，用于结构化输出场景（出题、简历评分等）。
-     * 这些场景要求模型一次性返回可解析 JSON，不应混入工具调用消息。
+     * 获取指定 Provider 的 Plain ChatClient，当前用于文字方向题、简历题及知识库面试出题。
+     * 不注册工具回调，仅按配置注册 SafeGuardAdvisor，减少工具调用对结构化输出的干扰。
+     * 面试评分和简历分析当前仍使用默认类型的 ChatClient；结构化输出不会自动切换为 Plain。
+     *
+     * @see #getChatClientOrDefault(String)
+     * @see #getDefaultChatClient()
      */
     public ChatClient getPlainChatClient(String providerId) {
         String id = resolveProviderId(providerId);
@@ -247,15 +245,7 @@ public class LlmProviderRegistry {
             throw new BusinessException(ErrorCode.PROVIDER_CONFIG_READ_FAILED,
                 "Provider '" + providerId + "' 未配置可用的 Embedding 模型，无法执行知识库向量化");
         }
-        if (looksLikeChatModel(config.embeddingModel())) {
-            String recommendation = RECOMMENDED_EMBEDDING_MODELS.get(providerId.toLowerCase());
-            String suffix = recommendation != null
-                ? "，推荐填写 " + recommendation
-                : "，请填写该厂商真实的 Embedding 模型名";
-            throw new BusinessException(ErrorCode.PROVIDER_CONFIG_READ_FAILED,
-                "Provider '" + providerId + "' 的 Embedding Model 配成了聊天模型 '"
-                    + config.embeddingModel() + "'" + suffix);
-        }
+        // 模型名和自定义别名不能证明能力；实际支持情况由 Embedding 接口确认。
         log.info("[LlmProviderRegistry] Building EmbeddingModel - Provider: {}, BaseUrl: {}, Model: {}",
             providerId, config.baseUrl(), config.embeddingModel());
 
@@ -407,16 +397,6 @@ public class LlmProviderRegistry {
             return configuredDimensions;
         }
         return properties.getEmbeddingDimensions();
-    }
-
-    private boolean looksLikeChatModel(String model) {
-        String lower = model.toLowerCase();
-        return lower.startsWith("glm-")
-            || lower.startsWith("deepseek")
-            || lower.startsWith("kimi")
-            || lower.startsWith("moonshot")
-            || lower.startsWith("qwen")
-            || lower.startsWith("ernie");
     }
 
     private record ProviderSnapshot(

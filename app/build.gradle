@@ -88,6 +88,7 @@ dependencies {
 
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'io.micrometer:micrometer-registry-prometheus'
     testImplementation libs.junit.jupiter
     testImplementation platform('org.testcontainers:testcontainers-bom:2.0.5')
     testImplementation 'org.testcontainers:testcontainers'
@@ -109,9 +110,29 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'rag-eval'
+        excludeTags 'rag-eval', 'voice-context-eval'
     }
     jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+tasks.register('voiceContextEvaluation', Test) {
+    description = '虚构长会话的真实模型压缩对照（需 RUN_VOICE_CONTEXT_EVAL=true）'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'voice-context-eval' }
+    systemProperty 'voiceEval.reportDir', layout.buildDirectory.dir('reports/voice-context-eval').get().asFile.absolutePath
+    outputs.upToDateWhen { false }
+    def envFile = rootProject.file('.env')
+    if (envFile.exists()) {
+        envFile.eachLine { line ->
+            def trimmed = line.trim()
+            if (trimmed && !trimmed.startsWith('#') && trimmed.contains('=')) {
+                def (key, value) = trimmed.split('=', 2)
+                if (System.getenv(key) == null) { environment key, value }
+            }
+        }
+    }
 }
 
 // RAG 测评任务（P1-01）：只运行 rag-eval 标签，需要 RUN_RAG_EVAL=true 防误触付费调用
@@ -134,7 +155,7 @@ tasks.register('ragEvaluation', Test) {
             def trimmed = line.trim()
             if (trimmed && !trimmed.startsWith('#') && trimmed.contains('=')) {
                 def (key, value) = trimmed.split('=', 2)
-                environment key, value
+                if (System.getenv(key) == null) { environment key, value }
             }
         }
     }

@@ -13,7 +13,9 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.util.DigestUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -87,6 +89,15 @@ public class KnowledgeBaseVectorService {
      */
     public void vectorizeAndStore(Long knowledgeBaseId, String content, String attemptId,
                                   Runnable progressHeartbeat) {
+        vectorizeAndStore(knowledgeBaseId, content, attemptId, progressHeartbeat,
+            new SourceInfo("", "", null));
+    }
+
+    /** 文件哈希只用于可复现标识，不用于鉴权；来源信息由已加载的业务实体提供。 */
+    public record SourceInfo(String name, String filename, String fileHash) {}
+
+    public void vectorizeAndStore(Long knowledgeBaseId, String content, String attemptId,
+                                  Runnable progressHeartbeat, SourceInfo source) {
         String jobId = null;
         try {
             if (knowledgeBaseId == null) {
@@ -97,9 +108,23 @@ public class KnowledgeBaseVectorService {
                 knowledgeBaseId, jobId, content.length());
 
             // 1. 将文本分块
-            List<Document> chunks = textSplitter.apply(
-                List.of(new Document(content))
-            );
+            String configJson = vectorConfigJson();
+            String fileHash = source.fileHash() == null || source.fileHash().isBlank()
+                ? DigestUtils.md5DigestAsHex(content.getBytes(StandardCharsets.UTF_8)) : source.fileHash();
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("source_kb_id", knowledgeBaseId.toString());
+            metadata.put("source_name", source.name() == null ? "" : source.name());
+            metadata.put("source_filename", source.filename() == null ? "" : source.filename());
+            metadata.put("chunk_strategy", vectorProperties.getStrategyVersion());
+            List<Document> chunks = textSplitter.apply(List.of(new Document(content, metadata)));
+            for (int i = 0; i < chunks.size(); i++) {
+                Document chunk = chunks.get(i);
+                chunk.getMetadata().put("chunk_index", i);
+                chunk.getMetadata().put("total_chunks", chunks.size());
+                // 仅 metadata 稳定；保留随机 Document ID，避免 pending upsert 覆盖旧正式向量。
+                chunk.getMetadata().put("source_id", DigestUtils.md5DigestAsHex(
+                    (fileHash + "\n" + configJson + "\n" + i).getBytes(StandardCharsets.UTF_8)));
+            }
             
             log.info("文本分块完成: {} 个chunks", chunks.size());
             
@@ -123,7 +148,6 @@ public class KnowledgeBaseVectorService {
                 // Embedding 批次心跳（调用方节流）
                 progressHeartbeat.run();
             }
-            String configJson = vectorConfigJson();
             if (attemptId != null && persistenceService != null) {
                 persistenceService.activateVectorJobAndUpdateSnapshot(
                     knowledgeBaseId, attemptId, jobId, totalChunks, configJson);

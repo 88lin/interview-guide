@@ -49,10 +49,18 @@ public final class RagEvalReportWriter {
   private static String toMarkdown(Map<String, Object> report) {
     StringBuilder sb = new StringBuilder();
     sb.append("# RAG 测评报告：").append(report.get("runId")).append("\n\n");
+    sb.append("- evaluatorVersion: ")
+        .append(report.getOrDefault("evaluatorVersion", "legacy（旧版首命中排名口径）"))
+        .append("\n\n");
     sb.append("## 运行环境\n\n");
     Map<String, Object> env = (Map<String, Object>) report.get("environment");
     env.forEach((k, v) -> sb.append("- ").append(k).append(": ").append(v).append("\n"));
     sb.append("\n## 汇总指标\n\n");
+    sb.append("统计口径：Hit@K、MRR、EvidenceRecall@K 只统计有效的知识库内样本。")
+        .append("改写与检索耗时统计全部有效样本，生成与端到端耗时只统计生成子集；")
+        .append("各阶段的 Samples 字段给出实际计入耗时的样本数，P50 不能直接相加。\n\n")
+        .append("rewriteChangedSamples 按 rewrittenQuestion != question 统计；")
+        .append("multiQuerySamples 表示 attemptedQueries 多于一条，可能来自融合或单路回退。\n\n");
     Map<String, Object> metrics = (Map<String, Object>) report.get("metrics");
     metrics.forEach((group, value) -> {
       sb.append("### ").append(group).append("\n\n");
@@ -60,6 +68,8 @@ public final class RagEvalReportWriter {
       sb.append("\n");
     });
     sb.append("## 拒答混淆矩阵\n\n");
+    sb.append("只统计 evaluateGeneration=true 且未发生 HARNESS_ERROR 的样本，")
+        .append("样本数等于 tp + fn + fp + tn。\n\n");
     Map<String, Object> reject = (Map<String, Object>) report.get("rejection");
     if (reject != null) {
       reject.forEach((k, v) -> sb.append("- ").append(k).append(": ").append(v).append("\n"));

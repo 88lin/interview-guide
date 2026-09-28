@@ -105,7 +105,7 @@ class KnowledgeBaseQueryServiceTest {
 
       String answer = service.answerQuestion(List.of(1L), "什么是 Java 内存模型");
 
-      assertThat(answer).isEqualTo("同步回答");
+      assertThat(answer).startsWith("同步回答").contains("参考片段", "[S1]");
       verify(llmProviderRegistry, atLeastOnce()).getPlainChatClient();
       verify(llmProviderRegistry, never()).getDefaultChatClient();
     }
@@ -122,10 +122,49 @@ class KnowledgeBaseQueryServiceTest {
       List<String> chunks =
           service.answerQuestionStream(List.of(1L), "什么是 Java 内存模型").collectList().block();
 
-      assertThat(chunks).containsExactly("流式回答");
+      assertThat(String.join("", chunks)).startsWith("流式回答").contains("参考片段", "[S1]");
       verify(llmProviderRegistry, atLeastOnce()).getPlainChatClient();
       verify(llmProviderRegistry, never()).getDefaultChatClient();
     }
+  }
+
+  @Test
+  @DisplayName("Prompt 与尾注引用同一有序文档，模型虚构编号不会被补成来源")
+  void sourcesMatchActualPrompt() throws Exception {
+    when(resourceLoader.getResource(anyString())).thenAnswer(invocation ->
+        new ByteArrayResource("{context}\n{question}".getBytes(StandardCharsets.UTF_8)));
+    // system 模板无变量；只在 user 模板中插入上下文。
+    when(resourceLoader.getResource("classpath:prompts/knowledgebase-query-system.st"))
+        .thenReturn(new ByteArrayResource("系统规则".getBytes(StandardCharsets.UTF_8)));
+    service = buildService(false);
+    mockPlainClient();
+    var docs = List.of(new Document("第一段"), new Document("第二段"));
+    when(vectorService.similaritySearch(anyString(), anyList(), anyInt(), anyDouble())).thenReturn(docs);
+    var prompts = new ArrayList<String>();
+    when(plainChatClient.prompt().system(anyString()).user(anyString()).call().content())
+        .thenReturn("回答引用 [S99]");
+    String answer = service.answerQuestion(List.of(1L), "问题");
+    var captor = org.mockito.ArgumentCaptor.forClass(String.class);
+    verify(plainChatClient.prompt().system(anyString()), atLeastOnce()).user(captor.capture());
+    prompts.addAll(captor.getAllValues());
+    assertThat(prompts).anySatisfy(prompt -> assertThat(prompt)
+        .containsSubsequence("[S1]", "第一段", "[S2]", "第二段"));
+    assertThat(answer).endsWith(RagSources.footer(docs)).doesNotContain("- [S99]");
+  }
+
+  @Test
+  @DisplayName("检索有命中但模型拒答时，同步及流式都不追加来源尾注")
+  void refusalHasNoSources() throws Exception {
+    service = buildService(false);
+    mockPlainClient();
+    stubDocuments();
+    when(plainChatClient.prompt().system(anyString()).user(anyString()).call().content())
+        .thenReturn("信息不足");
+    when(plainChatClient.prompt().system(anyString()).user(anyString()).stream().content())
+        .thenReturn(Flux.just("信息", "不足"));
+    String sync = service.answerQuestion(List.of(1L), "问题");
+    String stream = String.join("", service.answerQuestionStream(List.of(1L), "问题").collectList().block());
+    assertThat(sync).isEqualTo(stream).contains("未检索到相关信息").doesNotContain("参考片段", "[S1]");
   }
 
   @Test
@@ -142,11 +181,11 @@ class KnowledgeBaseQueryServiceTest {
         .answerQuestionStream(List.of(1L), "什么是 Java 内存模型", List.of(), traces::add)
         .collectList().block();
 
-    assertThat(chunks).containsExactly("流式回答");
+    assertThat(String.join("", chunks)).startsWith("流式回答").contains("参考片段", "[S1]");
     assertThat(traces).hasSize(1);
     interview.guide.modules.knowledgebase.service.RagQueryExecution execution = traces.getFirst();
     assertThat(execution.outcome()).isEqualTo("ANSWERED");
-    assertThat(execution.answer()).isEqualTo("流式回答");
+    assertThat(execution.answer()).isEqualTo(String.join("", chunks));
     assertThat(execution.retrievedDocs()).hasSize(1);
     assertThat(execution.rewrittenQuestion()).isEqualTo("什么是 Java 内存模型");
     assertThat(execution.rewriteDurationMs()).isGreaterThanOrEqualTo(0);
@@ -301,6 +340,7 @@ class KnowledgeBaseQueryServiceTest {
           .collectList().block();
 
       assertThat(chunks).isNotEmpty();  // onErrorResume 返回错误文案
+      assertThat(String.join("", chunks)).doesNotContain("参考片段", "[S1]");
       assertThat(meterRegistry.get(RagMetrics.REQUESTS).counter().count()).isEqualTo(1.0);
       assertThat(meterRegistry.get(RagMetrics.REQUESTS).counter().getId().getTag("result")).isEqualTo("error");
     }
@@ -638,7 +678,7 @@ class KnowledgeBaseQueryServiceTest {
 
       String answer = service.answerQuestion(List.of(1L), questionMarker);
 
-      assertThat(answer).isEqualTo("同步回答");
+      assertThat(answer).startsWith("同步回答").contains("参考片段");
       String logs = capturedLogs();
       assertThat(logs).doesNotContain(questionMarker);
       assertThat(logs).contains("Query rewrite 失败");
@@ -669,7 +709,7 @@ class KnowledgeBaseQueryServiceTest {
 
       String answer = service.answerQuestion(List.of(1L), "jmm 是什么");
 
-      assertThat(answer).isEqualTo("同步回答");
+      assertThat(answer).startsWith("同步回答").contains("参考片段");
       verify(llmProviderRegistry, atLeastOnce()).getPlainChatClient();
       verify(llmProviderRegistry, never()).getDefaultChatClient();
     }
@@ -685,7 +725,7 @@ class KnowledgeBaseQueryServiceTest {
 
       String answer = service.answerQuestion(List.of(1L), "什么是 Java 内存模型");
 
-      assertThat(answer).isEqualTo("同步回答");
+      assertThat(answer).startsWith("同步回答").contains("参考片段");
       verify(plainChatClient.prompt().user(anyString()), never()).call();
       verify(llmProviderRegistry, never()).getDefaultChatClient();
     }
@@ -703,7 +743,7 @@ class KnowledgeBaseQueryServiceTest {
 
       String answer = service.answerQuestion(List.of(1L), "什么是 Java 内存模型");
 
-      assertThat(answer).isEqualTo("同步回答");
+      assertThat(answer).startsWith("同步回答").contains("参考片段");
       verify(llmProviderRegistry, never()).getDefaultChatClient();
     }
   }

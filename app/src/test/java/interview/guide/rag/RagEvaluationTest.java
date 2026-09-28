@@ -4,7 +4,9 @@ import interview.guide.modules.knowledgebase.model.KnowledgeBaseEntity;
 import interview.guide.modules.knowledgebase.model.VectorStatus;
 import interview.guide.modules.knowledgebase.repository.KnowledgeBaseRepository;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseQueryService;
+import interview.guide.modules.knowledgebase.service.KnowledgeBaseQueryProperties;
 import interview.guide.modules.knowledgebase.service.KnowledgeBaseVectorService;
+import interview.guide.modules.knowledgebase.service.KnowledgeBaseVectorProperties;
 import interview.guide.modules.knowledgebase.service.RagQueryExecution;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -71,6 +73,10 @@ class RagEvaluationTest {
   private KnowledgeBaseVectorService vectorService;
   @Autowired
   private KnowledgeBaseQueryService queryService;
+  @Autowired
+  private KnowledgeBaseQueryProperties queryProperties;
+  @Autowired
+  private KnowledgeBaseVectorProperties vectorProperties;
 
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final Map<String, Long> fixtureKbIds = new HashMap<>();
@@ -243,7 +249,7 @@ class RagEvaluationTest {
           if (docTexts.get(i) != null
               && RagEvalSample.normalize(docTexts.get(i)).contains(normalizedEvidence)) {
             hitEvidenceIds.add(evidence.id());
-            if (firstHitRank == null) {
+            if (firstHitRank == null || i + 1 < firstHitRank) {
               firstHitRank = i + 1;
             }
             break;
@@ -368,6 +374,7 @@ class RagEvaluationTest {
                                           Map<String, Integer> chunkCounts) throws Exception {
     Map<String, Object> report = new LinkedHashMap<>();
     report.put("runId", RUN_ID);
+    report.put("evaluatorVersion", "evidence-rank-v2");
     report.put("timestamp", java.time.Instant.now().toString());
     report.put("environment", buildEnvironment(chunkCounts));
     report.put("metrics", buildMetrics(sampleResults));
@@ -393,12 +400,7 @@ class RagEvaluationTest {
       env.put("promptSha256:" + prompt,
           sha256(new ClassPathResource("prompts/" + prompt).getInputStream().readAllBytes()));
     }
-    env.put("rewriteEnabled", System.getenv("APP_AI_RAG_REWRITE_ENABLED") == null
-        ? "false(rag-eval Profile 默认)" : System.getenv("APP_AI_RAG_REWRITE_ENABLED"));
-    env.put("mergeOriginalQuery", System.getenv("APP_AI_RAG_MERGE_ORIGINAL_QUERY") == null
-        ? "false(默认)" : System.getenv("APP_AI_RAG_MERGE_ORIGINAL_QUERY"));
-    env.put("chunkSize", System.getenv("APP_AI_RAG_VECTORIZATION_CHUNK_SIZE") == null
-        ? "800(默认)" : System.getenv("APP_AI_RAG_VECTORIZATION_CHUNK_SIZE"));
+    env.putAll(configurationSnapshot());
     env.put("redisDatabase", System.getenv().getOrDefault("REDIS_DATABASE", "1(rag-eval Profile 默认)"));
     env.put("evalDatabase", EVAL_DB + "（每 run 重建）");
     env.put("tokenUsage", "null（当前链路 .content() 无法取得 usage，补齐属 P1-04）");
@@ -406,6 +408,18 @@ class RagEvaluationTest {
     env.putAll(providerSnapshot());
     chunkCounts.forEach((fixture, count) -> env.put("chunkCount:" + fixture, count));
     return env;
+  }
+
+  private Map<String, Object> configurationSnapshot() {
+    Map<String, Object> snapshot = new LinkedHashMap<>();
+    snapshot.put("rewriteEnabled", queryProperties.getRewrite().isEnabled());
+    snapshot.put("mergeOriginalQuery", queryProperties.getSearch().isMergeOriginalQuery());
+    snapshot.put("chunkSize", vectorProperties.getChunkSize());
+    // 读取 Spring 绑定后的有效配置，保留标点等会影响分块结果的参数。
+    snapshot.put("vectorization", objectMapper.convertValue(vectorProperties, Map.class));
+    snapshot.put("search", objectMapper.convertValue(queryProperties.getSearch(), Map.class));
+    snapshot.put("history", objectMapper.convertValue(queryProperties.getHistory(), Map.class));
+    return snapshot;
   }
 
   /**

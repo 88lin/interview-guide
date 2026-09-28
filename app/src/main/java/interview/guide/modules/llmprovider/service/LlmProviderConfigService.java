@@ -69,14 +69,6 @@ public class LlmProviderConfigService {
   private final QwenAsrService asrService;
   private final QwenTtsService ttsService;
 
-  private static final Map<String, String> RECOMMENDED_EMBEDDING_MODELS = Map.of(
-      "dashscope", "text-embedding-v3",
-      "glm", "embedding-3",
-      "zhipu", "embedding-3",
-      "baidu", "Embedding-V1",
-      "minimax", "embo-01"
-  );
-
   @Autowired
   public LlmProviderConfigService(
       LlmProviderProperties properties,
@@ -338,7 +330,7 @@ public class LlmProviderConfigService {
       boolean supportsEmbedding = request.supportsEmbedding() != null
           ? request.supportsEmbedding()
           : embeddingModel != null;
-      validateEmbeddingConfig(providerId, supportsEmbedding, embeddingModel, embeddingDimensions);
+      validateEmbeddingConfig(supportsEmbedding, embeddingModel, embeddingDimensions);
 
       ApiKeyEncryptionService.EncryptedValue encrypted = encryptionService.encrypt(apiKey);
       providerRepository.save(LlmProviderEntity.builder()
@@ -396,7 +388,6 @@ public class LlmProviderConfigService {
         provider.setSupportsEmbedding(request.supportsEmbedding());
       }
       validateEmbeddingConfig(
-          id,
           provider.isSupportsEmbedding(),
           provider.getEmbeddingModel(),
           resolveEmbeddingDimensions(provider.getEmbeddingDimensions()));
@@ -478,7 +469,6 @@ public class LlmProviderConfigService {
             "Provider '" + providerId + "' 不支持 Embedding，不能设为默认向量服务");
       }
       validateEmbeddingConfig(
-          providerId,
           true,
           embeddingModel,
           resolveEmbeddingDimensions(provider.getEmbeddingDimensions()));
@@ -766,7 +756,6 @@ public class LlmProviderConfigService {
   }
 
   private void validateEmbeddingConfig(
-      String providerId,
       boolean supportsEmbedding,
       String embeddingModel,
       Integer embeddingDimensions) {
@@ -778,14 +767,7 @@ public class LlmProviderConfigService {
       throw new BusinessException(ErrorCode.BAD_REQUEST,
           "支持 Embedding 的 Provider 必须填写 embeddingModel");
     }
-    if (looksLikeChatModel(normalizedModel)) {
-      String recommendation = RECOMMENDED_EMBEDDING_MODELS.get(providerId.toLowerCase());
-      String suffix = recommendation != null
-          ? "，推荐填写 " + recommendation
-          : "，请填写该厂商真实的 Embedding 模型名";
-      throw new BusinessException(ErrorCode.BAD_REQUEST,
-          "Embedding Model 不能填写聊天模型 '" + normalizedModel + "'" + suffix);
-    }
+    // 模型名和自定义别名不能证明能力；实际支持情况由 Embedding 接口确认。
     if (embeddingDimensions == null || embeddingDimensions <= 0) {
       throw new BusinessException(ErrorCode.BAD_REQUEST, "向量维度必须为正整数");
     }
@@ -796,16 +778,6 @@ public class LlmProviderConfigService {
       return configuredDimensions;
     }
     return properties.getEmbeddingDimensions();
-  }
-
-  private boolean looksLikeChatModel(String model) {
-    String lower = model.toLowerCase();
-    return lower.startsWith("glm-")
-        || lower.startsWith("deepseek")
-        || lower.startsWith("kimi")
-        || lower.startsWith("moonshot")
-        || lower.startsWith("qwen")
-        || lower.startsWith("ernie");
   }
 
   private String toEnvKey(String providerId) {

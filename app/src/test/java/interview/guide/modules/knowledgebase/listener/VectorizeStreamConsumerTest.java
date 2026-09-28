@@ -151,7 +151,8 @@ class VectorizeStreamConsumerTest {
       verify(vectorService).vectorizeAndStore(org.mockito.ArgumentMatchers.eq(7L),
             org.mockito.ArgumentMatchers.eq("解析后的正文"),
             org.mockito.ArgumentMatchers.eq("attempt-1"),
-            org.mockito.ArgumentMatchers.any(Runnable.class));
+            org.mockito.ArgumentMatchers.any(Runnable.class),
+            org.mockito.ArgumentMatchers.argThat(source -> "a.pdf".equals(source.filename())));
     }
   }
 
