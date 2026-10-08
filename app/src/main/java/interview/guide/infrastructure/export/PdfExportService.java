@@ -3,7 +3,10 @@ package interview.guide.infrastructure.export;
 import com.itextpdf.io.font.PdfEncodings;
 import com.itextpdf.kernel.colors.DeviceRgb;
 import com.itextpdf.kernel.pdf.PdfDocument;
+import com.itextpdf.kernel.pdf.PdfName;
+import com.itextpdf.kernel.pdf.PdfOutline;
 import com.itextpdf.kernel.pdf.PdfWriter;
+import com.itextpdf.kernel.pdf.navigation.PdfStringDestination;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Cell;
 import com.itextpdf.layout.element.Paragraph;
@@ -26,6 +29,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -40,6 +44,7 @@ public class PdfExportService {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DeviceRgb HEADER_COLOR = new DeviceRgb(41, 128, 185);
     private static final DeviceRgb SECTION_COLOR = new DeviceRgb(52, 73, 94);
+    private static final String QUESTIONS_DESTINATION = "interview-questions";
     
     private final ObjectMapper objectMapper;
     
@@ -259,15 +264,26 @@ public class PdfExportService {
         // 问答详情
         List<InterviewAnswerEntity> answers = session.getAnswers();
         if (answers != null && !answers.isEmpty()) {
+            PdfOutline questions = pdfDoc.getOutlines(false).addOutline("问答详情");
+            questions.addDestination(new PdfStringDestination(QUESTIONS_DESTINATION));
+            questions.setOpen(true);
+            pdfDoc.getCatalog().setPageMode(PdfName.UseOutlines);
             document.add(new Paragraph("\n"));
-            document.add(createSectionTitle("问答详情"));
+            document.add(createSectionTitle("问答详情").setDestination(QUESTIONS_DESTINATION));
+            int bookmarkIndex = 0;
             
-            for (InterviewAnswerEntity answer : answers) {
+            for (InterviewAnswerEntity answer : answers.stream()
+                .sorted(Comparator.comparingInt(InterviewAnswerEntity::getQuestionIndex)).toList()) {
+                String destination = "interview-question-" + bookmarkIndex++;
+                questions.addOutline(questionBookmarkTitle(answer))
+                    .addDestination(new PdfStringDestination(destination));
                 document.add(new Paragraph("\n"));
                 document.add(new Paragraph("问题 " + (answer.getQuestionIndex() + 1) + 
                     " [" + (answer.getCategory() != null ? answer.getCategory() : "综合") + "]")
                     .setBold()
-                    .setFontSize(12));
+                    .setFontSize(12)
+                    .setKeepWithNext(true)
+                    .setDestination(destination));
                 document.add(new Paragraph("Q: " + sanitizeText(answer.getQuestion())));
                 document.add(new Paragraph("A: " + sanitizeText(answer.getUserAnswer() != null ? answer.getUserAnswer() : "未回答")));
                 document.add(new Paragraph("得分: " + answer.getScore() + "/100")
@@ -286,6 +302,13 @@ public class PdfExportService {
         document.close();
         return baos.toByteArray();
     }
+
+  private String questionBookmarkTitle(InterviewAnswerEntity answer) {
+    String number = "问题 " + (answer.getQuestionIndex() + 1);
+    String question = answer.getQuestion() == null ? ""
+        : answer.getQuestion().replaceAll("(?U)\\s+", " ").trim();
+    return question.isEmpty() ? number : number + "：" + question;
+  }
     
     private Paragraph createSectionTitle(String title) {
         return new Paragraph(title)
